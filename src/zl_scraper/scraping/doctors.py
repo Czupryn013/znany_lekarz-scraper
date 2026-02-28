@@ -1,11 +1,11 @@
-"""Fetch the doctors endpoint for a clinic and parse the count."""
+"""Fetch the doctors endpoint for a clinic and parse the results."""
 
 import asyncio
 
 import httpx
 
-from zl_scraper.scraping.http_client import fetch
-from zl_scraper.scraping.parsers import parse_doctors_response
+from zl_scraper.scraping.http_client import WaterfallClient
+from zl_scraper.scraping.parsers import DoctorData, parse_doctors_response
 from zl_scraper.utils.logging import get_logger
 
 logger = get_logger("doctors")
@@ -16,16 +16,16 @@ DOCTORS_URL_TEMPLATE = (
 )
 
 
-async def fetch_doctors_count(
+async def fetch_doctors(
     profile_id: str,
-    client: httpx.AsyncClient,
+    client: WaterfallClient,
     semaphore: asyncio.Semaphore,
-) -> int:
-    """Fetch the doctors JSON endpoint and return the count of doctors."""
+) -> list[DoctorData]:
+    """Fetch the doctors JSON endpoint via waterfall and return the list of doctors."""
     url = DOCTORS_URL_TEMPLATE.format(profile_id=profile_id)
     try:
-        response = await fetch(client, url, semaphore)
+        response = await client.fetch(url, semaphore)
         return parse_doctors_response(response.text)
     except httpx.HTTPError as e:
         logger.error("Failed to fetch doctors for profile_id=%s: %s", profile_id, e)
-        return 0
+        return []

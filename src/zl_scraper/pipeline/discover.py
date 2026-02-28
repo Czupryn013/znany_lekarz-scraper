@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from zl_scraper.config import SEARCH_CONCURRENCY, SPECIALIZATIONS_PATH
 from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic, SearchQuery, Specialization
-from zl_scraper.scraping.http_client import create_client
+from zl_scraper.scraping.http_client import WaterfallClient
 from zl_scraper.scraping.search_pages import scrape_specialization_pages
 from zl_scraper.utils.logging import get_logger
 
@@ -35,10 +35,11 @@ def _save_clinic_stubs(
     stubs: list,
     spec_id: int,
     session: Session,
-) -> tuple[int, int]:
-    """Insert clinic stubs and search query links. Return (new_count, deduped_count)."""
+) -> tuple[int, int, list[str]]:
+    """Insert clinic stubs and search query links. Return (new_count, deduped_count, deduped_names)."""
     new_count = 0
     deduped_count = 0
+    deduped_names: list[str] = []
 
     for stub in stubs:
         # Upsert clinic — INSERT ON CONFLICT DO NOTHING
@@ -63,6 +64,7 @@ def _save_clinic_stubs(
             clinic = session.query(Clinic).filter_by(zl_url=stub.zl_url).first()
             clinic_id = clinic.id
             deduped_count += 1
+            deduped_names.append(stub.name)
 
         # Link clinic ↔ specialization
         sq_stmt = (
@@ -77,17 +79,19 @@ def _save_clinic_stubs(
         session.execute(sq_stmt)
 
     session.commit()
-    return new_count, deduped_count
+    return new_count, deduped_count, deduped_names
 
 
 async def run_discovery(
     spec_name: str | None = None,
     spec_id: int | None = None,
     max_pages: int | None = None,
+    offset: int = 0,
     limit: int | None = None,
+    start_tier: str = "datacenter",
 ) -> None:
     """Orchestrate search discovery across all (or filtered) specializations."""
-    logger.info("Starting discovery pipeline")
+    logger.info("[bold]Starting discovery pipeline[/]")
 
     session = SessionLocal()
     try:
@@ -98,6 +102,8 @@ async def run_discovery(
             specs = [s for s in specs if s["name"] == spec_name]
         if spec_id:
             specs = [s for s in specs if s["id"] == spec_id]
+        if offset:
+            specs = specs[offset:]
         if limit:
             specs = specs[:limit]
 
@@ -105,38 +111,45 @@ async def run_discovery(
             logger.warning("No specializations matched the given filters")
             return
 
-        logger.info("Will process %d specialization(s)", len(specs))
+        logger.info("Will process [bold]%d[/] specialization(s)", len(specs))
 
         total_new = 0
         total_deduped = 0
-        total_pages_scraped = 0
 
         semaphore = asyncio.Semaphore(SEARCH_CONCURRENCY)
 
-        async with create_client() as client:
+        async with WaterfallClient(start_tier=start_tier) as wf_client:
             for spec in specs:
-                stubs = await scrape_specialization_pages(
+                # Build a saver closure that pins the current DB session
+                def _saver(stubs, sid, _session=session):
+                    return _save_clinic_stubs(stubs, sid, _session)
+
+                result = await scrape_specialization_pages(
                     spec_id=spec["id"],
                     spec_name=spec["name"],
-                    client=client,
+                    wf_client=wf_client,
                     semaphore=semaphore,
                     session=session,
+                    save_stubs=_saver,
                     max_pages=max_pages,
                 )
 
-                if stubs:
-                    new_count, deduped_count = _save_clinic_stubs(stubs, spec["id"], session)
-                    total_new += new_count
-                    total_deduped += deduped_count
-                    logger.info(
-                        "Specialization '%s': %d new clinics, %d already known (deduped)",
-                        spec["name"],
-                        new_count,
-                        deduped_count,
-                    )
+                total_new += result["new"]
+                total_deduped += result["deduped"]
+                logger.info(
+                    "[bold cyan]%s[/] — [green]+%d new[/], [yellow]%d dedup[/]",
+                    spec["name"],
+                    result["new"],
+                    result["deduped"],
+                )
+
+                # Pause between specializations so ZL doesn't flag burst traffic
+                if result["new"] > 0 or result["deduped"] > 0:
+                    logger.info("[dim]Waiting 15 s before next specialization…[/]")
+                    await asyncio.sleep(15)
 
         logger.info(
-            "Discovery complete: %d new clinics, %d deduped across %d specializations",
+            "[bold green]Discovery complete:[/] [green]+%d new[/], [yellow]%d dedup[/] across [bold]%d[/] specializations",
             total_new,
             total_deduped,
             len(specs),

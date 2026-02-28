@@ -18,15 +18,26 @@ DATABASE_URL: str = os.getenv(
 )
 
 # ── Proxy ────────────────────────────────────────────────────────────────
-PROXY_URL: str = os.getenv(
-    "PROXY_URL",
-    "http://groups-BUYPROXIES94952:some_pwd@proxy.apify.com:8000",
+# Waterfall tiers: datacenter (cheapest) → residential → web unlocker (most expensive)
+DATACENTER_PROXY_URL: str = os.getenv(
+    "DATACENTER_PROXY_URL",
+    "abc",
 )
-
+RESIDENTIAL_PROXY_URL: str = os.getenv(
+    "RESIDENTIAL_PROXY_URL",
+    "abc",
+)
+WEB_UNLOCKER_URL: str = os.getenv(
+    "WEB_UNLOCKER_URL",
+    "abc",
+)
+DATACENTER_RATE_LIMIT: int = int(os.getenv("DATACENTER_RATE_LIMIT", "100"))
+RESIDENTIAL_RATE_LIMIT: int = int(os.getenv("RESIDENTIAL_RATE_LIMIT", "100"))
+WEB_UNLOCKER_RATE_LIMIT: int = int(os.getenv("WEB_UNLOCKER_RATE_LIMIT", "100"))
+USE_PROXY: bool = os.getenv("USE_PROXY", "true").lower() in ("1", "true", "yes")
 # ── Concurrency ──────────────────────────────────────────────────────────
 SEARCH_CONCURRENCY: int = int(os.getenv("SEARCH_CONCURRENCY", "5"))
 PROFILE_CONCURRENCY: int = int(os.getenv("PROFILE_CONCURRENCY", "15"))
-DOCTORS_CONCURRENCY: int = int(os.getenv("DOCTORS_CONCURRENCY", "15"))
 
 # ── HTTP ─────────────────────────────────────────────────────────────────
 REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "10"))

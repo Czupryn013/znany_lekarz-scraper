@@ -14,15 +14,21 @@ class ClinicStub:
     name: str
     zl_url: str
     specializations_text: str
+    zl_profile_id: str | None = None
 
 
 @dataclass
 class LocationData:
-    """A single clinic address with optional coordinates."""
+    """A single clinic address with optional coordinates and social links."""
 
     address: str
     latitude: float | None = None
     longitude: float | None = None
+    facebook_url: str | None = None
+    instagram_url: str | None = None
+    youtube_url: str | None = None
+    linkedin_url: str | None = None
+    website_url: str | None = None
 
 
 @dataclass
@@ -37,8 +43,35 @@ class ProfileData:
     locations: list[LocationData] = field(default_factory=list)
 
 
+@dataclass
+class DoctorData:
+    """A doctor record from the facility doctors API."""
+
+    id: int | None = None
+    name: str | None = None
+    surname: str | None = None
+    zl_url: str | None = None
+
+
+def _extract_profile_id_from_card(element) -> str | None:
+    """Walk up the DOM from a search-result link looking for a profile-ID data attribute."""
+    # Check the element itself first
+    for attr in ("data-id", "data-eec-entity-id", "data-entity-id", "data-doctor-id"):
+        val = element.get(attr)
+        if val:
+            return str(val)
+
+    # Walk up ancestors looking for data-id / data-eec-entity-id
+    for attr in ("data-id", "data-eec-entity-id"):
+        parent = element.find_parent(attrs={attr: True})
+        if parent:
+            return str(parent[attr])
+
+    return None
+
+
 def parse_search_page(html: str) -> list[ClinicStub]:
-    """Extract clinic stubs (name, URL, specializations) from a search results page."""
+    """Extract clinic stubs (name, URL, specializations, profile ID) from a search results page."""
     soup = BeautifulSoup(html, "lxml")
     stubs: list[ClinicStub] = []
 
@@ -55,9 +88,10 @@ def parse_search_page(html: str) -> list[ClinicStub]:
         if href.startswith("/"):
             href = f"https://www.znanylekarz.pl{href}"
         specs = spec_elements[i].get_text(strip=True) if i < len(spec_elements) else ""
+        profile_id = _extract_profile_id_from_card(url_elements[i])
 
         if name and href:
-            stubs.append(ClinicStub(name=name, zl_url=href, specializations_text=specs))
+            stubs.append(ClinicStub(name=name, zl_url=href, specializations_text=specs, zl_profile_id=profile_id))
 
     return stubs
 
@@ -97,24 +131,53 @@ def parse_profile_page(html: str) -> ProfileData:
     if profile_el:
         data.zl_profile_id = profile_el.get("data-eec-entity-id")
 
-    # Addresses
-    address_elements = soup.select(".tab-content .tab-pane div.d-flex div.d-flex div div div.mr-1")
-    addresses = [el.get_text(strip=True) for el in address_elements if el.get_text(strip=True)]
+    # Iterate over each address tab-pane within the contact section
+    tab_panes = soup.select("#contact-section .tab-content .tab-pane")
+    for pane in tab_panes:
+        # Address (separate element from facility name)
+        addr_el = pane.select_one('[data-test-id="contact-facility-address"]')
+        address = addr_el.get_text(strip=True) if addr_el else None
 
-    # Coordinates from Google Maps links
-    coord_elements = soup.select("div.mb-2.mb-md-0 a.map-placeholder")
-    coords: list[tuple[float | None, float | None]] = []
-    for el in coord_elements:
-        href = el.get("href", "")
-        if isinstance(href, list):
-            href = href[0]
-        lat, lng = parse_coordinates(str(href))
-        coords.append((lat, lng))
+        # Coordinates from map link inside this pane
+        map_el = pane.select_one('a.map-placeholder[href]')
+        lat, lng = None, None
+        if map_el:
+            href = map_el.get("href", "")
+            if isinstance(href, list):
+                href = href[0]
+            lat, lng = parse_coordinates(str(href))
 
-    # Build locations
-    for i, addr in enumerate(addresses):
-        lat, lng = coords[i] if i < len(coords) else (None, None)
-        data.locations.append(LocationData(address=addr, latitude=lat, longitude=lng))
+        # Social / website links from the modal that belongs to this pane
+        pane_id = pane.get("id", "")
+        modal_idx = pane_id.replace("tab-address-", "") if pane_id.startswith("tab-address-") else ""
+        modal = soup.select_one(f'[data-id="facility-contact-modal-{modal_idx}"]') if modal_idx else None
+
+        social: dict[str, str | None] = {
+            "facebook_url": None,
+            "instagram_url": None,
+            "youtube_url": None,
+            "linkedin_url": None,
+            "website_url": None,
+        }
+        links_section = modal.select_one('[data-test-id="contact-modal-links-section"]') if modal else None
+        if links_section:
+            for a_tag in links_section.select("a[href]"):
+                link_href = a_tag.get("href", "")
+                if isinstance(link_href, list):
+                    link_href = link_href[0]
+                field_name, url = _classify_link(str(link_href))
+                if field_name and social.get(field_name) is None:
+                    social[field_name] = url
+
+        if address:
+            data.locations.append(
+                LocationData(
+                    address=address,
+                    latitude=lat,
+                    longitude=lng,
+                    **social,
+                )
+            )
 
     # Reviews count
     reviews_el = soup.select_one("#facility-opinion-stats h2.h3")
@@ -140,6 +203,45 @@ def parse_profile_page(html: str) -> ProfileData:
     return data
 
 
+# Domains to skip when classifying links (not social / not website)
+_SKIP_DOMAINS = {"znanylekarz.pl", "docplanner.com", "hiredoc.com", "google.com", "apple.com"}
+
+# Base-domain -> field name mapping for social networks
+_SOCIAL_DOMAIN_MAP: dict[str, str] = {
+    "facebook.com": "facebook_url",
+    "instagram.com": "instagram_url",
+    "youtube.com": "youtube_url",
+    "linkedin.com": "linkedin_url",
+}
+
+
+def _base_domain(hostname: str) -> str:
+    """Return the last two parts of a hostname (handles country sub-domains like pl.linkedin.com)."""
+    parts = hostname.rstrip(".").split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+
+
+def _classify_link(url: str) -> tuple[str | None, str]:
+    """Return (field_name, url) for a recognised social/website link, or (None, url) to skip."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    base = _base_domain(host)
+
+    # Skip internal / irrelevant domains
+    if base in _SKIP_DOMAINS:
+        return None, url
+
+    # Check known social domains
+    field = _SOCIAL_DOMAIN_MAP.get(base)
+    if field:
+        return field, url
+
+    # Everything else is a generic website
+    return "website_url", url
+
+
 def parse_coordinates(maps_url: str) -> tuple[float | None, float | None]:
     """Regex-extract lat/lng from a Google Maps URL."""
     match = re.search(r"query=(-?\d+\.\d+),(-?\d+\.\d+)", maps_url)
@@ -148,12 +250,30 @@ def parse_coordinates(maps_url: str) -> tuple[float | None, float | None]:
     return None, None
 
 
-def parse_doctors_response(json_text: str) -> int:
-    """Parse the doctors JSON array, return the count."""
+def parse_doctors_response(json_text: str) -> list[DoctorData]:
+    """Parse the doctors JSON array, return a list of DoctorData."""
     try:
         data = json.loads(json_text)
-        if isinstance(data, list):
-            return len(data)
-        return 0
-    except (json.JSONDecodeError, TypeError):
-        return 0
+        if not isinstance(data, list):
+            return []
+        doctors: list[DoctorData] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            doc_id = item.get("id")
+            if doc_id is None:
+                continue
+            name = item.get("name") or None
+            surname = item.get("surname") or None
+            zl_url = item.get("url") or None
+            if zl_url and zl_url.startswith("/"):
+                zl_url = f"https://www.znanylekarz.pl{zl_url}"
+            doctors.append(DoctorData(
+                id=int(doc_id),
+                name=name,
+                surname=surname,
+                zl_url=zl_url,
+            ))
+        return doctors
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []

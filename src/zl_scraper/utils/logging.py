@@ -1,18 +1,36 @@
-"""Structured logging setup with colored console output."""
+"""Structured logging setup with Rich-powered colored console output."""
 
 import logging
-import sys
+
+from rich.logging import RichHandler
+
+# ── Tier → color mapping (reused by any module that logs tier names) ─────
+TIER_COLORS: dict[str, str] = {
+    "datacenter": "bright_magenta",
+    "residential": "bright_blue",
+    "unlocker": "bright_red",
+    "?": "dim",
+}
+
+
+def tier_tag(name: str) -> str:
+    """Return a Rich-markup colored tag for a proxy tier name, e.g. [bright_magenta]datacenter[/]."""
+    color = TIER_COLORS.get(name, "white")
+    return f"[{color}]{name}[/]"
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """Configure root logger with a readable console format."""
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    """Configure root logger with Rich colored output."""
+    handler = RichHandler(
+        level=level,
+        markup=True,
+        rich_tracebacks=True,
+        show_path=False,
+        show_time=True,
+        omit_repeated_times=False,
+        tracebacks_show_locals=False,
     )
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
+    handler.setFormatter(logging.Formatter("%(name)s │ %(message)s"))
 
     root = logging.getLogger("zl_scraper")
     root.setLevel(level)

@@ -4,14 +4,18 @@ import asyncio
 import csv
 import json
 import sys
+from pathlib import Path
 from typing import Optional
+
+# Allow running directly: python src/zl_scraper/cli.py <command>
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from zl_scraper.db.engine import SessionLocal
-from zl_scraper.db.models import Clinic, ClinicLocation, ScrapeProgress, Specialization
+from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
 from zl_scraper.utils.logging import setup_logging
 
 app = typer.Typer(
@@ -36,7 +40,9 @@ def discover(
     spec_name: Optional[str] = typer.Option(None, "--spec-name", help="Run for a single specialization name"),
     spec_id: Optional[int] = typer.Option(None, "--spec-id", help="Run for a single specialization ID"),
     max_pages: Optional[int] = typer.Option(None, "--max-pages", help="Cap pages per specialization"),
-    limit: Optional[int] = typer.Option(None, "--limit", help="Cap total specializations to process"),
+    offset: int = typer.Option(0, "--offset", help="Skip the first N specializations (0-based)"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap total specializations to process (applied after offset)"),
+    proxy_level: str = typer.Option("datacenter", "--proxy-level", help="Starting proxy tier: datacenter, residential, unlocker, or none"),
 ) -> None:
     """Run search page discovery for all (or specific) specializations."""
     from zl_scraper.pipeline.discover import run_discovery
@@ -46,7 +52,9 @@ def discover(
             spec_name=spec_name,
             spec_id=spec_id,
             max_pages=max_pages,
+            offset=offset,
             limit=limit,
+            start_tier=proxy_level,
         )
     )
     console.print("[green]Discovery complete.[/green]")
@@ -58,11 +66,12 @@ def discover(
 @app.command()
 def enrich(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to enrich"),
+    proxy_level: str = typer.Option("datacenter", "--proxy-level", help="Starting proxy tier: datacenter, residential, unlocker, or none"),
 ) -> None:
     """Enrich all un-enriched clinics with profile + doctors data."""
     from zl_scraper.pipeline.enrich import run_enrichment
 
-    asyncio.run(run_enrichment(limit=limit))
+    asyncio.run(run_enrichment(limit=limit, start_tier=proxy_level))
     console.print("[green]Enrichment complete.[/green]")
 
 
@@ -100,6 +109,75 @@ def status() -> None:
         table.add_row("Total clinic locations", str(total_locations))
 
         console.print(table)
+    finally:
+        session.close()
+
+
+@app.command(name="status-discover")
+def status_discover() -> None:
+    """Detailed discovery progress — per-specialization page counts and clinic totals."""
+    from sqlalchemy import func
+
+    session = SessionLocal()
+    try:
+        # Subquery: clinic count per specialization via search_queries
+        clinic_counts = (
+            session.query(
+                SearchQuery.specialization_id,
+                func.count(SearchQuery.clinic_id).label("clinics"),
+            )
+            .group_by(SearchQuery.specialization_id)
+            .subquery()
+        )
+
+        rows = (
+            session.query(
+                Specialization.id,
+                Specialization.name,
+                ScrapeProgress.last_page_scraped,
+                ScrapeProgress.total_pages,
+                ScrapeProgress.status,
+                clinic_counts.c.clinics,
+            )
+            .outerjoin(ScrapeProgress, Specialization.id == ScrapeProgress.specialization_id)
+            .outerjoin(clinic_counts, Specialization.id == clinic_counts.c.specialization_id)
+            .order_by(Specialization.id)
+            .all()
+        )
+
+        table = Table(title="Discovery Progress by Specialization")
+        table.add_column("#", style="dim", justify="right")
+        table.add_column("Specialization", style="cyan")
+        table.add_column("Status", justify="center")
+        table.add_column("Pages", justify="right")
+        table.add_column("Clinics", style="green", justify="right")
+
+        total_clinics = 0
+        for idx, (spec_id, name, last_page, total_pages, prog_status, clinics) in enumerate(rows, 1):
+            clinics = clinics or 0
+            total_clinics += clinics
+
+            if prog_status == "done":
+                status_str = "[green]done[/]"
+                pages_str = f"{last_page}/{total_pages}"
+            elif prog_status == "in_progress":
+                status_str = "[yellow]in progress[/]"
+                pages_str = f"{last_page}/{total_pages}"
+            else:
+                status_str = "[dim]pending[/]"
+                pages_str = "—"
+
+            table.add_row(str(idx), name, status_str, pages_str, str(clinics))
+
+        console.print(table)
+
+        # Unique clinic count (clinics appear in multiple specializations)
+        unique_clinics = session.query(Clinic).count()
+        console.print(
+            f"\n[bold]Total:[/] [green]{unique_clinics}[/] unique clinics across "
+            f"[bold]{len(rows)}[/] specializations "
+            f"[dim]({total_clinics} incl. overlaps)[/]"
+        )
     finally:
         session.close()
 
@@ -192,15 +270,28 @@ def reset(
             updated = (
                 session.query(Clinic)
                 .filter(Clinic.enriched_at.isnot(None))
-                .update({Clinic.enriched_at: None})
+                .update({
+                    Clinic.enriched_at: None,
+                    Clinic.zl_profile_id: None,
+                    Clinic.nip: None,
+                    Clinic.legal_name: None,
+                    Clinic.description: None,
+                    Clinic.zl_reviews_cnt: None,
+                    Clinic.doctors_count: None,
+                })
             )
-            # Also remove clinic locations since they'll be re-created
+            # Remove clinic locations, doctor associations, and orphan doctors
             session.query(ClinicLocation).delete()
+            session.execute(clinic_doctors.delete())
+            session.query(Doctor).delete()
             session.commit()
-            console.print(f"[green]Reset enrichment for {updated} clinics (locations cleared).[/green]")
+            console.print(f"[green]Reset enrichment for {updated} clinics (locations, doctors cleared).[/green]")
 
         else:
             console.print(f"[red]Unknown step: {step}. Use 'discover' or 'enrich'.[/red]")
             raise typer.Exit(1)
     finally:
         session.close()
+
+if __name__ == "__main__":
+    app()

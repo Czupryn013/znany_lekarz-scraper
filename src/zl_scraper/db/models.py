@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
@@ -17,6 +18,15 @@ from sqlalchemy.orm import DeclarativeBase, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+# M2M association table: clinics <-> doctors
+clinic_doctors = Table(
+    "clinic_doctors",
+    Base.metadata,
+    Column("clinic_id", Integer, ForeignKey("clinics.id", ondelete="CASCADE"), primary_key=True),
+    Column("doctor_id", Integer, ForeignKey("doctors.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Specialization(Base):
@@ -53,6 +63,7 @@ class Clinic(Base):
 
     locations = relationship("ClinicLocation", back_populates="clinic", cascade="all, delete-orphan")
     search_queries = relationship("SearchQuery", back_populates="clinic", cascade="all, delete-orphan")
+    doctors = relationship("Doctor", secondary=clinic_doctors, back_populates="clinics")
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -68,11 +79,32 @@ class ClinicLocation(Base):
     address = Column(String(512), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    facebook_url = Column(String(512), nullable=True)
+    instagram_url = Column(String(512), nullable=True)
+    youtube_url = Column(String(512), nullable=True)
+    linkedin_url = Column(String(512), nullable=True)
+    website_url = Column(String(512), nullable=True)
 
     clinic = relationship("Clinic", back_populates="locations")
 
     def __repr__(self) -> str:
         return f"<ClinicLocation(id={self.id}, address='{self.address}')>"
+
+
+class Doctor(Base):
+    """A doctor listed on a clinic's profile page (M2M with clinics)."""
+
+    __tablename__ = "doctors"
+
+    id = Column(Integer, primary_key=True, autoincrement=False)
+    name = Column(String(256), nullable=True)
+    surname = Column(String(256), nullable=True)
+    zl_url = Column(String(512), nullable=True)
+
+    clinics = relationship("Clinic", secondary=clinic_doctors, back_populates="doctors")
+
+    def __repr__(self) -> str:
+        return f"<Doctor(id={self.id}, name='{self.name} {self.surname}')>"
 
 
 class SearchQuery(Base):

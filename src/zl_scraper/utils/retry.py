@@ -44,7 +44,7 @@ def _log_give_up(retry_state: RetryCallState) -> None:
 retry_on_http_error = retry(
     retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
     stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=2, max=30),
+    wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=15, max=120),
     before_sleep=_log_before_retry,
     retry_error_callback=_log_give_up,
     reraise=True,
