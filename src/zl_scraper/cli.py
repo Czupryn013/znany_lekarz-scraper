@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from zl_scraper.db.engine import SessionLocal
-from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
+from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, LinkedInCandidate, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
 from zl_scraper.utils.logging import setup_logging
 
 app = typer.Typer(
@@ -130,6 +130,42 @@ def status() -> None:
         table.add_row("Clinics with LinkedIn URL", f"{clinics_with_linkedin} / {enriched_clinics}")
         table.add_row("Clinics with website URL", f"{clinics_with_website} / {enriched_clinics}")
         table.add_row("───", "───")
+
+        # Company enrichment metrics (clinic-level)
+        clinics_with_domain = (
+            session.query(Clinic)
+            .filter(Clinic.enriched_at.isnot(None), Clinic.website_domain.isnot(None))
+            .count()
+        )
+        domain_searched = (
+            session.query(Clinic)
+            .filter(Clinic.enriched_at.isnot(None), Clinic.domain_searched_at.isnot(None))
+            .count()
+        )
+        clinics_with_li = (
+            session.query(Clinic)
+            .filter(Clinic.enriched_at.isnot(None), Clinic.linkedin_url.isnot(None))
+            .count()
+        )
+        linkedin_searched = (
+            session.query(Clinic)
+            .filter(Clinic.enriched_at.isnot(None), Clinic.linkedin_searched_at.isnot(None))
+            .count()
+        )
+        maybe_pending = (
+            session.query(LinkedInCandidate)
+            .filter(LinkedInCandidate.status == "maybe")
+            .count()
+        )
+
+        table.add_row("[bold]Company enrichment[/]", "")
+        table.add_row("Domain found (clinic-level)", f"{clinics_with_domain} / {enriched_clinics}")
+        table.add_row("Domain SERP searched", f"{domain_searched} / {enriched_clinics}")
+        table.add_row("LinkedIn found (clinic-level)", f"{clinics_with_li} / {enriched_clinics}")
+        table.add_row("LinkedIn SERP searched", f"{linkedin_searched} / {enriched_clinics}")
+        table.add_row("LinkedIn MAYBE pending", str(maybe_pending))
+        table.add_row("───", "───")
+
         table.add_row("Total doctors", str(total_doctors))
         table.add_row("───", "───")
         table.add_row("Total clinic locations", str(total_locations))
@@ -318,6 +354,11 @@ def filter_clinics(
         clinics = result.matched
         matched_ids = [c.id for c in clinics]
 
+        with_nip = (
+            session.query(Clinic)
+            .filter(Clinic.id.in_(matched_ids), Clinic.nip.isnot(None), Clinic.nip != "")
+            .count()
+        ) if matched_ids else 0
         with_website = (
             session.query(ClinicLocation.clinic_id)
             .filter(ClinicLocation.clinic_id.in_(matched_ids), ClinicLocation.website_url.isnot(None))
@@ -347,6 +388,7 @@ def filter_clinics(
             table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
             table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
             table.add_row("───", "───")
+            table.add_row("With NIP", f"{with_nip} / {result.total_matched}")
             table.add_row("With website URL", f"{with_website} / {result.total_matched}")
             table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
             console.print(table)
@@ -387,6 +429,7 @@ def filter_clinics(
         table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
         table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
         table.add_row("───", "───")
+        table.add_row("With NIP", f"{with_nip} / {result.total_matched}")
         table.add_row("With website URL", f"{with_website} / {result.total_matched}")
         table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
         table.add_row("───", "───")
@@ -396,14 +439,117 @@ def filter_clinics(
         session.close()
 
 
+# ── company enrichment ────────────────────────────────────────────────────
+
+
+@app.command(name="backfill-domains")
+def backfill_domains() -> None:
+    """Extract website_domain from existing location website_url data."""
+    from zl_scraper.pipeline.company_enrich.backfill_domains import run_backfill_domains
+
+    run_backfill_domains()
+    console.print("[green]Domain backfill complete.[/green]")
+
+
+@app.command(name="find-domains")
+def find_domains(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+) -> None:
+    """Discover website domains for clinics via SERP search + LLM validation."""
+    from zl_scraper.pipeline.company_enrich.find_domains import run_find_domains
+
+    asyncio.run(run_find_domains(limit=limit))
+    console.print("[green]Domain discovery complete.[/green]")
+
+
+@app.command(name="find-linkedin")
+def find_linkedin(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+    skip_maybe: bool = typer.Option(False, "--skip-maybe", help="Skip second-pass MAYBE validation"),
+) -> None:
+    """Discover LinkedIn company pages for clinics via SERP + LLM categorisation."""
+    from zl_scraper.pipeline.company_enrich.find_linkedin import run_find_linkedin
+
+    asyncio.run(run_find_linkedin(limit=limit, skip_maybe=skip_maybe))
+    console.print("[green]LinkedIn discovery complete.[/green]")
+
+
+@app.command(name="review-linkedin")
+def review_linkedin(
+    list_all: bool = typer.Option(False, "--list", help="List all MAYBE candidates"),
+    approve: Optional[int] = typer.Option(None, "--approve", help="Approve candidate by ID"),
+    reject: Optional[int] = typer.Option(None, "--reject", help="Reject candidate by ID"),
+) -> None:
+    """Review LinkedIn MAYBE candidates — list, approve, or reject."""
+    session = SessionLocal()
+    try:
+        if approve is not None:
+            candidate = session.get(LinkedInCandidate, approve)
+            if not candidate:
+                console.print(f"[red]Candidate ID {approve} not found.[/red]")
+                raise typer.Exit(1)
+            candidate.status = "yes"
+            clinic = session.get(Clinic, candidate.clinic_id)
+            if clinic:
+                clinic.linkedin_url = candidate.url
+            session.commit()
+            console.print(f"[green]Approved candidate {approve} — {candidate.url}[/green]")
+            return
+
+        if reject is not None:
+            candidate = session.get(LinkedInCandidate, reject)
+            if not candidate:
+                console.print(f"[red]Candidate ID {reject} not found.[/red]")
+                raise typer.Exit(1)
+            candidate.status = "no"
+            session.commit()
+            console.print(f"[yellow]Rejected candidate {reject} — {candidate.url}[/yellow]")
+            return
+
+        # Default: list MAYBE candidates
+        candidates = (
+            session.query(LinkedInCandidate)
+            .join(Clinic, Clinic.id == LinkedInCandidate.clinic_id)
+            .filter(LinkedInCandidate.status == "maybe")
+            .order_by(LinkedInCandidate.id)
+            .all()
+        )
+
+        if not candidates:
+            console.print("[green]No MAYBE candidates pending review.[/green]")
+            return
+
+        table = Table(title=f"LinkedIn MAYBE Candidates ({len(candidates)})")
+        table.add_column("ID", style="dim", justify="right")
+        table.add_column("Clinic", style="cyan")
+        table.add_column("Domain", style="blue")
+        table.add_column("LinkedIn URL", style="yellow")
+
+        for cand in candidates:
+            clinic = session.get(Clinic, cand.clinic_id)
+            table.add_row(
+                str(cand.id),
+                clinic.name if clinic else "?",
+                clinic.website_domain if clinic else "?",
+                cand.url,
+            )
+
+        console.print(table)
+        console.print(
+            "\nUse [bold]--approve <ID>[/bold] or [bold]--reject <ID>[/bold] to resolve."
+        )
+    finally:
+        session.close()
+
+
 # ── reset ────────────────────────────────────────────────────────────────
 
 
 @app.command()
 def reset(
-    step: str = typer.Option(..., "--step", help="Which step to reset: discover or enrich"),
+    step: str = typer.Option(..., "--step", help="Which step to reset: discover, enrich, or domains"),
 ) -> None:
-    """Reset progress for re-runs (discover or enrich)."""
+    """Reset progress for re-runs (discover, enrich, or domains)."""
     session = SessionLocal()
     try:
         if step == "discover":
@@ -432,8 +578,23 @@ def reset(
             session.commit()
             console.print(f"[green]Reset enrichment for {updated} clinics (locations, doctors cleared).[/green]")
 
+        elif step == "domains":
+            updated = (
+                session.query(Clinic)
+                .filter(
+                    Clinic.enriched_at.isnot(None),
+                    (Clinic.website_domain.isnot(None)) | (Clinic.domain_searched_at.isnot(None)),
+                )
+                .update({
+                    Clinic.website_domain: None,
+                    Clinic.domain_searched_at: None,
+                })
+            )
+            session.commit()
+            console.print(f"[green]Reset domain search for {updated} clinics (website_domain + domain_searched_at cleared).[/green]")
+
         else:
-            console.print(f"[red]Unknown step: {step}. Use 'discover' or 'enrich'.[/red]")
+            console.print(f"[red]Unknown step: {step}. Use 'discover', 'enrich', or 'domains'.[/red]")
             raise typer.Exit(1)
     finally:
         session.close()

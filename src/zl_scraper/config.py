@@ -46,6 +46,16 @@ REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "10"))
 MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
 RETRY_WAIT_MULTIPLIER: float = float(os.getenv("RETRY_WAIT_MULTIPLIER", "2"))
 
+# ── Apify ────────────────────────────────────────────────────────────────
+APIFY_API_TOKEN: str = os.getenv("APIFY_API_TOKEN", "")
+SERP_KEYWORDS_PER_CALL: int = int(os.getenv("SERP_KEYWORDS_PER_CALL", "20"))
+APIFY_CONCURRENCY: int = int(os.getenv("APIFY_CONCURRENCY", "20"))
+APIFY_ACTOR_TIMEOUT_SECS: int = int(os.getenv("APIFY_ACTOR_TIMEOUT_SECS", "300"))
+
+# ── OpenAI ───────────────────────────────────────────────────────────────
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+
 # ── ZnanyLekarz URLs ────────────────────────────────────────────────────
 ZL_BASE_URL = "https://www.znanylekarz.pl"
 ZL_SEARCH_URL = f"{ZL_BASE_URL}/szukaj"

@@ -61,9 +61,16 @@ class Clinic(Base):
     discovered_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     enriched_at = Column(DateTime, nullable=True)
 
+    # Company enrichment fields
+    website_domain = Column(String(255), nullable=True)
+    linkedin_url = Column(String(512), nullable=True)
+    domain_searched_at = Column(DateTime, nullable=True)
+    linkedin_searched_at = Column(DateTime, nullable=True)
+
     locations = relationship("ClinicLocation", back_populates="clinic", cascade="all, delete-orphan")
     search_queries = relationship("SearchQuery", back_populates="clinic", cascade="all, delete-orphan")
     doctors = relationship("Doctor", secondary=clinic_doctors, back_populates="clinics")
+    linkedin_candidates = relationship("LinkedInCandidate", back_populates="clinic", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -148,3 +155,20 @@ class ScrapeProgress(Base):
             f"<ScrapeProgress(spec_id={self.specialization_id}, "
             f"page={self.last_page_scraped}, status='{self.status}')>"
         )
+
+
+class LinkedInCandidate(Base):
+    """A LinkedIn company page URL found via SERP, pending human review."""
+
+    __tablename__ = "linkedin_candidates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False)
+    url = Column(String(512), nullable=False)
+    status = Column(String(16), nullable=False, default="maybe")  # yes / maybe / no
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    clinic = relationship("Clinic", back_populates="linkedin_candidates")
+
+    def __repr__(self) -> str:
+        return f"<LinkedInCandidate(id={self.id}, clinic_id={self.clinic_id}, status='{self.status}')>"
