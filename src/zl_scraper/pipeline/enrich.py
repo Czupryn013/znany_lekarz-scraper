@@ -15,7 +15,7 @@ from zl_scraper.utils.logging import get_logger
 
 logger = get_logger("enrich")
 
-BATCH_SIZE = 30
+BATCH_SIZE = 12
 
 
 def _get_unenriched_clinics(session: Session, limit: int | None = None) -> list[Clinic]:

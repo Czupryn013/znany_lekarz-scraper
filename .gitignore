@@ -7,3 +7,4 @@ dist/
 build/
 export.csv
 export.json
+.n8n-workflows/

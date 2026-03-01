@@ -90,8 +90,29 @@ def status() -> None:
         total_clinics = session.query(Clinic).count()
         enriched_clinics = session.query(Clinic).filter(Clinic.enriched_at.isnot(None)).count()
         unenriched_clinics = total_clinics - enriched_clinics
+        clinics_with_nip = (
+            session.query(Clinic)
+            .filter(Clinic.enriched_at.isnot(None), Clinic.nip.isnot(None))
+            .count()
+        )
 
         total_locations = session.query(ClinicLocation).count()
+        clinics_with_linkedin = (
+            session.query(ClinicLocation.clinic_id)
+            .join(Clinic, Clinic.id == ClinicLocation.clinic_id)
+            .filter(Clinic.enriched_at.isnot(None), ClinicLocation.linkedin_url.isnot(None))
+            .distinct()
+            .count()
+        )
+        clinics_with_website = (
+            session.query(ClinicLocation.clinic_id)
+            .join(Clinic, Clinic.id == ClinicLocation.clinic_id)
+            .filter(Clinic.enriched_at.isnot(None), ClinicLocation.website_url.isnot(None))
+            .distinct()
+            .count()
+        )
+
+        total_doctors = session.query(Doctor).count()
 
         table = Table(title="ZL Scraper Status")
         table.add_column("Metric", style="cyan")
@@ -105,6 +126,11 @@ def status() -> None:
         table.add_row("Total clinics discovered", str(total_clinics))
         table.add_row("Clinics enriched", str(enriched_clinics))
         table.add_row("Clinics awaiting enrichment", str(unenriched_clinics))
+        table.add_row("Clinics with NIP", f"{clinics_with_nip} / {enriched_clinics}")
+        table.add_row("Clinics with LinkedIn URL", f"{clinics_with_linkedin} / {enriched_clinics}")
+        table.add_row("Clinics with website URL", f"{clinics_with_website} / {enriched_clinics}")
+        table.add_row("───", "───")
+        table.add_row("Total doctors", str(total_doctors))
         table.add_row("───", "───")
         table.add_row("Total clinic locations", str(total_locations))
 
@@ -247,6 +273,125 @@ def export(
             raise typer.Exit(1)
 
         console.print(f"[green]Exported {len(rows)} clinics to {filepath}[/green]")
+    finally:
+        session.close()
+
+
+# ── filter ────────────────────────────────────────────────────────────────
+
+
+@app.command(name="filter")
+def filter_clinics(
+    min_doctors: int = typer.Option(20, "--min-doctors", help="Minimum doctor count threshold"),
+    format: str = typer.Option("csv", "--format", help="Output format: csv or json"),
+    output: str = typer.Option("filtered_clinics", "--output", help="Output file path (without extension)"),
+    show_excluded: bool = typer.Option(False, "--show-excluded", help="Print excluded specializations and exit"),
+    show_allowed: bool = typer.Option(False, "--show-allowed", help="Print allowed (ICP) specializations and exit"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show filter summary without exporting"),
+) -> None:
+    """Filter enriched clinics by doctor count and ICP specialization match."""
+    from zl_scraper.pipeline.filter import (
+        build_allowed_specialization_names,
+        build_excluded_specialization_names,
+        build_export_rows,
+        query_filtered_clinics,
+    )
+
+    allowed_specs = build_allowed_specialization_names()
+    excluded_specs = build_excluded_specialization_names()
+
+    if show_excluded:
+        console.print(f"[bold]Excluded specializations ({len(excluded_specs)}):[/bold]")
+        for name in sorted(excluded_specs):
+            console.print(f"  [red]✗[/red] {name}")
+        raise typer.Exit()
+
+    if show_allowed:
+        console.print(f"[bold]Allowed (ICP) specializations ({len(allowed_specs)}):[/bold]")
+        for name in sorted(allowed_specs):
+            console.print(f"  [green]✓[/green] {name}")
+        raise typer.Exit()
+
+    session = SessionLocal()
+    try:
+        result = query_filtered_clinics(session, min_doctors=min_doctors, allowed_spec_names=allowed_specs)
+        clinics = result.matched
+        matched_ids = [c.id for c in clinics]
+
+        with_website = (
+            session.query(ClinicLocation.clinic_id)
+            .filter(ClinicLocation.clinic_id.in_(matched_ids), ClinicLocation.website_url.isnot(None))
+            .distinct()
+            .count()
+        ) if matched_ids else 0
+        with_linkedin = (
+            session.query(ClinicLocation.clinic_id)
+            .filter(ClinicLocation.clinic_id.in_(matched_ids), ClinicLocation.linkedin_url.isnot(None))
+            .distinct()
+            .count()
+        ) if matched_ids else 0
+
+        if dry_run:
+            table = Table(title="Filter Dry Run")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="green", justify="right")
+            table.add_row("Min doctors threshold", str(min_doctors))
+            table.add_row("Allowed specializations", str(len(allowed_specs)))
+            table.add_row("Excluded specializations", str(len(excluded_specs)))
+            table.add_row("───", "───")
+            table.add_row("Total enriched clinics", str(result.total_enriched))
+            table.add_row("[red]Rejected (too few doctors)[/]", str(result.rejected_doctors))
+            table.add_row("[red]Rejected (wrong specialization)[/]", str(result.rejected_specialization))
+            table.add_row("[bold]Clinics matched (kept)[/]", f"[bold]{result.total_matched}[/]")
+            table.add_row("───", "───")
+            table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
+            table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
+            table.add_row("───", "───")
+            table.add_row("With website URL", f"{with_website} / {result.total_matched}")
+            table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
+            console.print(table)
+            return
+
+        if not clinics:
+            console.print("[yellow]No clinics matched the filter criteria.[/yellow]")
+            return
+
+        rows = build_export_rows(session, clinics)
+
+        if format == "csv":
+            filepath = f"{output}.csv"
+            with open(filepath, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+        elif format == "json":
+            filepath = f"{output}.json"
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False, indent=2)
+        else:
+            console.print(f"[red]Unknown format: {format}[/red]")
+            raise typer.Exit(1)
+
+        # Summary table
+        table = Table(title="Filter Results")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+        table.add_row("Min doctors threshold", str(min_doctors))
+        table.add_row("Allowed specializations", str(len(allowed_specs)))
+        table.add_row("Excluded specializations", str(len(excluded_specs)))
+        table.add_row("───", "───")
+        table.add_row("Total enriched clinics", str(result.total_enriched))
+        table.add_row("Rejected (too few doctors)", str(result.rejected_doctors))
+        table.add_row("Rejected (wrong specialization)", str(result.rejected_specialization))
+        table.add_row("Clinics matched", str(result.total_matched))
+        table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
+        table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
+        table.add_row("───", "───")
+        table.add_row("With website URL", f"{with_website} / {result.total_matched}")
+        table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
+        table.add_row("───", "───")
+        table.add_row("Exported to", filepath)
+        console.print(table)
     finally:
         session.close()
 

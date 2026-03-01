@@ -19,3 +19,8 @@ description: Guidelines for building extremely modular scraping and enrichment p
 - log at the start and end of each step
 - log any errors with as much context as possible
 - log any retries with the reason for the retry
+
+# Terminal
+- activate venv only once at the start of the terminal session
+- dont activate for each command
+- use `uv` for installing packages
