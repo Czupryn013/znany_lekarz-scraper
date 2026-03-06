@@ -24,3 +24,7 @@ description: Guidelines for building extremely modular scraping and enrichment p
 - activate venv only once at the start of the terminal session
 - dont activate for each command
 - use `uv` for installing packages
+
+# running the app
+- use python src/zl_scraper/cli.py to run commands
+- not the zl_scraper package

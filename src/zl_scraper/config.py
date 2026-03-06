@@ -51,6 +51,7 @@ APIFY_API_TOKEN: str = os.getenv("APIFY_API_TOKEN", "")
 SERP_KEYWORDS_PER_CALL: int = int(os.getenv("SERP_KEYWORDS_PER_CALL", "20"))
 APIFY_CONCURRENCY: int = int(os.getenv("APIFY_CONCURRENCY", "20"))
 APIFY_ACTOR_TIMEOUT_SECS: int = int(os.getenv("APIFY_ACTOR_TIMEOUT_SECS", "300"))
+DOMAIN_CHECKPOINT_SIZE: int = int(os.getenv("DOMAIN_CHECKPOINT_SIZE", "400"))
 
 # ── OpenAI ───────────────────────────────────────────────────────────────
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -61,11 +62,15 @@ class Clinic(Base):
     discovered_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     enriched_at = Column(DateTime, nullable=True)
 
+    # ICP filter flag
+    icp_match = Column(Boolean, nullable=False, default=False)
+
     # Company enrichment fields
     website_domain = Column(String(255), nullable=True)
     linkedin_url = Column(String(512), nullable=True)
     domain_searched_at = Column(DateTime, nullable=True)
     linkedin_searched_at = Column(DateTime, nullable=True)
+    nip_searched_at = Column(DateTime, nullable=True)
 
     locations = relationship("ClinicLocation", back_populates="clinic", cascade="all, delete-orphan")
     search_queries = relationship("SearchQuery", back_populates="clinic", cascade="all, delete-orphan")

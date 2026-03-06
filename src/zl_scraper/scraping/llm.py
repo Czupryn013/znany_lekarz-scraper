@@ -1,6 +1,7 @@
-"""OpenAI LLM validation helpers for domain and LinkedIn matching."""
+"""OpenAI LLM validation helpers for domain, LinkedIn matching, and NIP extraction."""
 
 import asyncio
+import re
 
 from openai import AsyncOpenAI
 
@@ -23,12 +24,16 @@ def _get_client() -> AsyncOpenAI:
 
 # ── Domain validation ────────────────────────────────────────────────────
 
+# Regex: valid domain like "example.com" or "sub.example.co.uk" (no spaces, no paths)
+_DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", re.IGNORECASE)
+
 DOMAIN_SYSTEM_PROMPT = (
     "You validate which result (if any) is the target medical clinic's OFFICIAL website.\n\n"
     "Reject directories, booking portals, 3rd-party sites.\n"
-    "If exactly one official site matches, output its domain.\n"
-    "If none match, output NULL.\n"
-    "Output only the domain or NULL."
+    "If exactly one official site matches, output ONLY its bare domain (e.g. example.com).\n"
+    "If none match, output NULL.\n\n"
+    "IMPORTANT: Output a single bare domain or NULL. "
+    "No explanations, no extra text, no reasoning — just the domain or NULL."
 )
 
 
@@ -92,7 +97,17 @@ async def validate_domain(
             )
             return None
         # Strip any accidental protocol/path from the answer
-        domain = answer.replace("https://", "").replace("http://", "").strip("/").strip()
+        domain = answer.replace("https://", "").replace("http://", "").strip("/").split("/")[0].strip()
+
+        # Guard: reject if the response isn't a valid domain (LLM hallucinated text)
+        if not _DOMAIN_RE.match(domain):
+            logger.warning(
+                "[domain] '%s' — LLM returned invalid domain '%s', treating as NULL",
+                clinic_name,
+                domain[:120],
+            )
+            return None
+
         logger.info(
             "[domain] '%s' — ACCEPTED '%s' from candidates %s",
             clinic_name,
@@ -237,3 +252,90 @@ async def validate_linkedin_profile(
     except Exception as exc:
         logger.error("LLM LinkedIn validation failed for '%s': %s", clinic_name, exc)
         return False
+
+
+# ── NIP extraction ────────────────────────────────────────────────────────
+
+NIP_SYSTEM_PROMPT = (
+    "You extract the Polish NIP (tax identification number) of a company from Google search results.\n\n"
+    "A valid NIP is a 10-digit number (sometimes written with dashes like 123-456-78-90).\n"
+    "If you find a NIP, output ONLY the raw digits (no dashes, no spaces).\n"
+    "If no NIP is found, output NULL.\n\n"
+    "IMPORTANT: Output a single 10-digit NIP or NULL. "
+    "No explanations, no extra text, no reasoning — just the digits or NULL."
+)
+
+
+def _build_nip_user_prompt(
+    clinic_name: str,
+    domain: str,
+    serp_results: list[SerpResult],
+) -> str:
+    """Build the user message for NIP extraction."""
+    results_str = "\n".join(
+        f"- {r.url}: {r.title} — {r.description}"
+        for r in serp_results
+    )
+    return (
+        f"TARGET\n- company: {clinic_name}\n- domain: {domain}\n\n"
+        f"RESULTS:\n{results_str}"
+    )
+
+
+def _clean_nip(raw: str) -> str | None:
+    """Strip non-digit characters and validate length (10 digits)."""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 10:
+        return digits
+    return None
+
+
+async def extract_nip(
+    clinic_name: str,
+    domain: str,
+    serp_results: list[SerpResult],
+) -> str | None:
+    """Ask LLM to extract a Polish NIP from SERP results, or return None."""
+    if not serp_results:
+        logger.info("[nip] '%s' — no SERP results to extract from", clinic_name)
+        return None
+
+    client = _get_client()
+    user_msg = _build_nip_user_prompt(clinic_name, domain, serp_results)
+
+    logger.info(
+        "[nip] '%s' domain=%s — evaluating %d results",
+        clinic_name,
+        domain,
+        len(serp_results),
+    )
+
+    try:
+        resp = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": NIP_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        answer = resp.choices[0].message.content.strip()
+
+        if answer.upper() == "NULL" or not answer:
+            logger.info("[nip] '%s' — LLM said NULL (no NIP found)", clinic_name)
+            return None
+
+        nip = _clean_nip(answer)
+        if nip is None:
+            logger.warning(
+                "[nip] '%s' — LLM returned invalid NIP '%s' (not 10 digits after cleaning)",
+                clinic_name,
+                answer[:60],
+            )
+            return None
+
+        logger.info("[nip] '%s' — extracted NIP %s", clinic_name, nip)
+        return nip
+    except Exception as exc:
+        logger.error("[nip] '%s' — LLM call failed: %s", clinic_name, exc)
+        return None

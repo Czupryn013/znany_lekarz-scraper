@@ -10,13 +10,13 @@ from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic, LinkedInCandidate
 from zl_scraper.scraping.linkedin_scraper import scrape_linkedin_companies
 from zl_scraper.scraping.llm import categorize_linkedin_results, validate_linkedin_profile
-from zl_scraper.scraping.serp import SerpResponse, SerpResult, run_serp_search
+from zl_scraper.pipeline.company_enrich.serp import SerpResponse, SerpResult, run_serp_search
 from zl_scraper.utils.logging import get_logger
 
 logger = get_logger("find_linkedin")
 
 
-def _get_clinics_needing_linkedin(session: Session, limit: int | None = None) -> list[Clinic]:
+def _get_clinics_needing_linkedin(session: Session, limit: int | None = None, icp_only: bool = True) -> list[Clinic]:
     """Query clinics that have a domain but haven't been LinkedIn-searched yet."""
     query = (
         session.query(Clinic)
@@ -27,6 +27,8 @@ def _get_clinics_needing_linkedin(session: Session, limit: int | None = None) ->
         )
         .order_by(Clinic.id)
     )
+    if icp_only:
+        query = query.filter(Clinic.icp_match.is_(True))
     if limit:
         query = query.limit(limit)
     return query.all()
@@ -177,13 +179,14 @@ async def _validate_maybe_candidates(session: Session) -> tuple[int, int]:
 async def run_find_linkedin(
     limit: int | None = None,
     skip_maybe: bool = False,
+    icp_only: bool = True,
 ) -> None:
     """Discover LinkedIn company profiles for clinics via SERP + LLM categorisation."""
-    logger.info("Starting LinkedIn discovery pipeline")
+    logger.info("Starting LinkedIn discovery pipeline (icp_only=%s)", icp_only)
 
     session = SessionLocal()
     try:
-        clinics = _get_clinics_needing_linkedin(session, limit)
+        clinics = _get_clinics_needing_linkedin(session, limit, icp_only=icp_only)
         total = len(clinics)
 
         if total == 0:

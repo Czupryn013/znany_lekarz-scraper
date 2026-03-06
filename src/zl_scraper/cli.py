@@ -79,7 +79,9 @@ def enrich(
 
 
 @app.command()
-def status() -> None:
+def status(
+    icp_only: bool = typer.Option(False, "--icp", help="Show stats for ICP-matched clinics only"),
+) -> None:
     """Print progress: specializations scraped, clinics discovered/enriched."""
     session = SessionLocal()
     try:
@@ -90,66 +92,87 @@ def status() -> None:
         total_clinics = session.query(Clinic).count()
         enriched_clinics = session.query(Clinic).filter(Clinic.enriched_at.isnot(None)).count()
         unenriched_clinics = total_clinics - enriched_clinics
+
+        # Base query for clinic-level stats
+        if icp_only:
+            base_filter = [Clinic.icp_match.is_(True)]
+            scope_clinics = session.query(Clinic).filter(*base_filter).count()
+            scope_label = "ICP-matched clinics"
+        else:
+            base_filter = [Clinic.enriched_at.isnot(None)]
+            scope_clinics = enriched_clinics
+            scope_label = "Enriched clinics"
+
         clinics_with_nip = (
             session.query(Clinic)
-            .filter(Clinic.enriched_at.isnot(None), Clinic.nip.isnot(None))
+            .filter(*base_filter, Clinic.nip.isnot(None))
             .count()
         )
 
         total_locations = session.query(ClinicLocation).count()
+        if icp_only:
+            loc_join_filter = [Clinic.icp_match.is_(True)]
+        else:
+            loc_join_filter = [Clinic.enriched_at.isnot(None)]
         clinics_with_linkedin = (
             session.query(ClinicLocation.clinic_id)
             .join(Clinic, Clinic.id == ClinicLocation.clinic_id)
-            .filter(Clinic.enriched_at.isnot(None), ClinicLocation.linkedin_url.isnot(None))
+            .filter(*loc_join_filter, ClinicLocation.linkedin_url.isnot(None))
             .distinct()
             .count()
         )
         clinics_with_website = (
             session.query(ClinicLocation.clinic_id)
             .join(Clinic, Clinic.id == ClinicLocation.clinic_id)
-            .filter(Clinic.enriched_at.isnot(None), ClinicLocation.website_url.isnot(None))
+            .filter(*loc_join_filter, ClinicLocation.website_url.isnot(None))
             .distinct()
             .count()
         )
 
         total_doctors = session.query(Doctor).count()
 
-        table = Table(title="ZL Scraper Status")
+        title = "ZL Scraper Status (ICP only)" if icp_only else "ZL Scraper Status"
+        table = Table(title=title)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green", justify="right")
 
-        table.add_row("Total specializations", str(total_specs))
-        table.add_row("Specializations done", str(done_specs))
-        table.add_row("Specializations in progress", str(in_progress_specs))
-        table.add_row("Specializations pending", str(total_specs - done_specs - in_progress_specs))
+        if not icp_only:
+            table.add_row("Total specializations", str(total_specs))
+            table.add_row("Specializations done", str(done_specs))
+            table.add_row("Specializations in progress", str(in_progress_specs))
+            table.add_row("Specializations pending", str(total_specs - done_specs - in_progress_specs))
+            table.add_row("───", "───")
+            table.add_row("Total clinics discovered", str(total_clinics))
+            table.add_row("Clinics enriched", str(enriched_clinics))
+            table.add_row("Clinics awaiting enrichment", str(unenriched_clinics))
+        else:
+            table.add_row(scope_label, str(scope_clinics))
+
         table.add_row("───", "───")
-        table.add_row("Total clinics discovered", str(total_clinics))
-        table.add_row("Clinics enriched", str(enriched_clinics))
-        table.add_row("Clinics awaiting enrichment", str(unenriched_clinics))
-        table.add_row("Clinics with NIP", f"{clinics_with_nip} / {enriched_clinics}")
-        table.add_row("Clinics with LinkedIn URL", f"{clinics_with_linkedin} / {enriched_clinics}")
-        table.add_row("Clinics with website URL", f"{clinics_with_website} / {enriched_clinics}")
+        table.add_row("Clinics with NIP", f"{clinics_with_nip} / {scope_clinics}")
+        table.add_row("Clinics with LinkedIn URL (location)", f"{clinics_with_linkedin} / {scope_clinics}")
+        table.add_row("Clinics with website URL (location)", f"{clinics_with_website} / {scope_clinics}")
         table.add_row("───", "───")
 
         # Company enrichment metrics (clinic-level)
         clinics_with_domain = (
             session.query(Clinic)
-            .filter(Clinic.enriched_at.isnot(None), Clinic.website_domain.isnot(None))
+            .filter(*base_filter, Clinic.website_domain.isnot(None))
             .count()
         )
         domain_searched = (
             session.query(Clinic)
-            .filter(Clinic.enriched_at.isnot(None), Clinic.domain_searched_at.isnot(None))
+            .filter(*base_filter, Clinic.domain_searched_at.isnot(None))
             .count()
         )
         clinics_with_li = (
             session.query(Clinic)
-            .filter(Clinic.enriched_at.isnot(None), Clinic.linkedin_url.isnot(None))
+            .filter(*base_filter, Clinic.linkedin_url.isnot(None))
             .count()
         )
         linkedin_searched = (
             session.query(Clinic)
-            .filter(Clinic.enriched_at.isnot(None), Clinic.linkedin_searched_at.isnot(None))
+            .filter(*base_filter, Clinic.linkedin_searched_at.isnot(None))
             .count()
         )
         maybe_pending = (
@@ -157,18 +180,31 @@ def status() -> None:
             .filter(LinkedInCandidate.status == "maybe")
             .count()
         )
+        nip_searched = (
+            session.query(Clinic)
+            .filter(*base_filter, Clinic.nip_searched_at.isnot(None))
+            .count()
+        )
+        nip_from_serp = (
+            session.query(Clinic)
+            .filter(*base_filter, Clinic.nip.isnot(None), Clinic.nip_searched_at.isnot(None))
+            .count()
+        )
 
         table.add_row("[bold]Company enrichment[/]", "")
-        table.add_row("Domain found (clinic-level)", f"{clinics_with_domain} / {enriched_clinics}")
-        table.add_row("Domain SERP searched", f"{domain_searched} / {enriched_clinics}")
-        table.add_row("LinkedIn found (clinic-level)", f"{clinics_with_li} / {enriched_clinics}")
-        table.add_row("LinkedIn SERP searched", f"{linkedin_searched} / {enriched_clinics}")
+        table.add_row("Domain found", f"{clinics_with_domain} / {scope_clinics}")
+        table.add_row("Domain SERP searched", f"{domain_searched} / {scope_clinics}")
+        table.add_row("LinkedIn found", f"{clinics_with_li} / {scope_clinics}")
+        table.add_row("LinkedIn SERP searched", f"{linkedin_searched} / {scope_clinics}")
         table.add_row("LinkedIn MAYBE pending", str(maybe_pending))
+        table.add_row("NIP found (SERP)", f"{nip_from_serp} / {scope_clinics}")
+        table.add_row("NIP SERP searched", f"{nip_searched} / {scope_clinics}")
         table.add_row("───", "───")
 
-        table.add_row("Total doctors", str(total_doctors))
-        table.add_row("───", "───")
-        table.add_row("Total clinic locations", str(total_locations))
+        if not icp_only:
+            table.add_row("Total doctors", str(total_doctors))
+            table.add_row("───", "───")
+            table.add_row("Total clinic locations", str(total_locations))
 
         console.print(table)
     finally:
@@ -319,17 +355,14 @@ def export(
 @app.command(name="filter")
 def filter_clinics(
     min_doctors: int = typer.Option(20, "--min-doctors", help="Minimum doctor count threshold"),
-    format: str = typer.Option("csv", "--format", help="Output format: csv or json"),
-    output: str = typer.Option("filtered_clinics", "--output", help="Output file path (without extension)"),
     show_excluded: bool = typer.Option(False, "--show-excluded", help="Print excluded specializations and exit"),
     show_allowed: bool = typer.Option(False, "--show-allowed", help="Print allowed (ICP) specializations and exit"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show filter summary without exporting"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show filter summary without writing to DB"),
 ) -> None:
-    """Filter enriched clinics by doctor count and ICP specialization match."""
+    """Mark enriched clinics as ICP-fit based on doctor count and specialization."""
     from zl_scraper.pipeline.filter import (
         build_allowed_specialization_names,
         build_excluded_specialization_names,
-        build_export_rows,
         query_filtered_clinics,
     )
 
@@ -372,50 +405,30 @@ def filter_clinics(
             .count()
         ) if matched_ids else 0
 
-        if dry_run:
-            table = Table(title="Filter Dry Run")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="green", justify="right")
-            table.add_row("Min doctors threshold", str(min_doctors))
-            table.add_row("Allowed specializations", str(len(allowed_specs)))
-            table.add_row("Excluded specializations", str(len(excluded_specs)))
-            table.add_row("───", "───")
-            table.add_row("Total enriched clinics", str(result.total_enriched))
-            table.add_row("[red]Rejected (too few doctors)[/]", str(result.rejected_doctors))
-            table.add_row("[red]Rejected (wrong specialization)[/]", str(result.rejected_specialization))
-            table.add_row("[bold]Clinics matched (kept)[/]", f"[bold]{result.total_matched}[/]")
-            table.add_row("───", "───")
-            table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
-            table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
-            table.add_row("───", "───")
-            table.add_row("With NIP", f"{with_nip} / {result.total_matched}")
-            table.add_row("With website URL", f"{with_website} / {result.total_matched}")
-            table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
-            console.print(table)
-            return
+        # Company enrichment metrics (clinic-level fields set by find-domains / find-linkedin)
+        with_domain = (
+            session.query(Clinic)
+            .filter(Clinic.id.in_(matched_ids), Clinic.website_domain.isnot(None))
+            .count()
+        ) if matched_ids else 0
+        domain_searched = (
+            session.query(Clinic)
+            .filter(Clinic.id.in_(matched_ids), Clinic.domain_searched_at.isnot(None))
+            .count()
+        ) if matched_ids else 0
+        with_li_company = (
+            session.query(Clinic)
+            .filter(Clinic.id.in_(matched_ids), Clinic.linkedin_url.isnot(None))
+            .count()
+        ) if matched_ids else 0
+        li_searched = (
+            session.query(Clinic)
+            .filter(Clinic.id.in_(matched_ids), Clinic.linkedin_searched_at.isnot(None))
+            .count()
+        ) if matched_ids else 0
 
-        if not clinics:
-            console.print("[yellow]No clinics matched the filter criteria.[/yellow]")
-            return
-
-        rows = build_export_rows(session, clinics)
-
-        if format == "csv":
-            filepath = f"{output}.csv"
-            with open(filepath, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-                writer.writeheader()
-                writer.writerows(rows)
-        elif format == "json":
-            filepath = f"{output}.json"
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(rows, f, ensure_ascii=False, indent=2)
-        else:
-            console.print(f"[red]Unknown format: {format}[/red]")
-            raise typer.Exit(1)
-
-        # Summary table
-        table = Table(title="Filter Results")
+        title = "Filter Dry Run" if dry_run else "Filter Results"
+        table = Table(title=title)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green", justify="right")
         table.add_row("Min doctors threshold", str(min_doctors))
@@ -423,18 +436,33 @@ def filter_clinics(
         table.add_row("Excluded specializations", str(len(excluded_specs)))
         table.add_row("───", "───")
         table.add_row("Total enriched clinics", str(result.total_enriched))
-        table.add_row("Rejected (too few doctors)", str(result.rejected_doctors))
-        table.add_row("Rejected (wrong specialization)", str(result.rejected_specialization))
-        table.add_row("Clinics matched", str(result.total_matched))
+        table.add_row("[red]Rejected (too few doctors)[/]", str(result.rejected_doctors))
+        table.add_row("[red]Rejected (wrong specialization)[/]", str(result.rejected_specialization))
+        table.add_row("[bold]Clinics matched (ICP fit)[/]", f"[bold]{result.total_matched}[/]")
+        table.add_row("───", "───")
         table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
         table.add_row("Avg doctors per clinic", f"{result.avg_doctors:.1f}")
         table.add_row("───", "───")
         table.add_row("With NIP", f"{with_nip} / {result.total_matched}")
-        table.add_row("With website URL", f"{with_website} / {result.total_matched}")
-        table.add_row("With LinkedIn URL", f"{with_linkedin} / {result.total_matched}")
+        table.add_row("With website URL (location)", f"{with_website} / {result.total_matched}")
+        table.add_row("With LinkedIn URL (location)", f"{with_linkedin} / {result.total_matched}")
         table.add_row("───", "───")
-        table.add_row("Exported to", filepath)
+        table.add_row("[bold]Company enrichment[/]", "")
+        table.add_row("Domain SERP searched", f"{domain_searched} / {result.total_matched}")
+        table.add_row("Domain found", f"{with_domain} / {result.total_matched}")
+        table.add_row("LinkedIn SERP searched", f"{li_searched} / {result.total_matched}")
+        table.add_row("LinkedIn found", f"{with_li_company} / {result.total_matched}")
         console.print(table)
+
+        if dry_run:
+            return
+
+        # Reset all enriched clinics to icp_match=False, then stamp matched ones as True
+        session.query(Clinic).filter(Clinic.enriched_at.isnot(None)).update({Clinic.icp_match: False})
+        if matched_ids:
+            session.query(Clinic).filter(Clinic.id.in_(matched_ids)).update({Clinic.icp_match: True})
+        session.commit()
+        console.print(f"[green]Marked {result.total_matched} clinics as ICP fit (reset {result.total_filtered_out} to not-fit).[/green]")
     finally:
         session.close()
 
@@ -454,24 +482,49 @@ def backfill_domains() -> None:
 @app.command(name="find-domains")
 def find_domains(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+    retry_not_found: bool = typer.Option(False, "--retry-not-found", help="Re-process clinics where SERP ran but no domain was found"),
+    all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
 ) -> None:
     """Discover website domains for clinics via SERP search + LLM validation."""
     from zl_scraper.pipeline.company_enrich.find_domains import run_find_domains
 
-    asyncio.run(run_find_domains(limit=limit))
+    asyncio.run(run_find_domains(limit=limit, retry_not_found=retry_not_found, icp_only=not all_clinics))
     console.print("[green]Domain discovery complete.[/green]")
+
+
+@app.command(name="manual-domains")
+def manual_domains(
+    all_clinics: bool = typer.Option(False, "--all", help="Include clinics not yet SERP-searched (default: only SERP-searched with no result)"),
+) -> None:
+    """Interactively assign website domains to clinics that SERP couldn't resolve."""
+    from zl_scraper.pipeline.company_enrich.manual_domains import run_manual_domains
+
+    run_manual_domains(only_searched=not all_clinics, icp_only=True)
 
 
 @app.command(name="find-linkedin")
 def find_linkedin(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
     skip_maybe: bool = typer.Option(False, "--skip-maybe", help="Skip second-pass MAYBE validation"),
+    all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
 ) -> None:
     """Discover LinkedIn company pages for clinics via SERP + LLM categorisation."""
     from zl_scraper.pipeline.company_enrich.find_linkedin import run_find_linkedin
 
-    asyncio.run(run_find_linkedin(limit=limit, skip_maybe=skip_maybe))
+    asyncio.run(run_find_linkedin(limit=limit, skip_maybe=skip_maybe, icp_only=not all_clinics))
     console.print("[green]LinkedIn discovery complete.[/green]")
+
+
+@app.command(name="find-nip")
+def find_nip(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+    all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
+) -> None:
+    """Find Polish NIP (tax ID) for clinics via SERP search on their domain + LLM extraction."""
+    from zl_scraper.pipeline.company_enrich.find_nip import run_find_nip
+
+    asyncio.run(run_find_nip(limit=limit, icp_only=not all_clinics))
+    console.print("[green]NIP discovery complete.[/green]")
 
 
 @app.command(name="review-linkedin")
@@ -593,8 +646,17 @@ def reset(
             session.commit()
             console.print(f"[green]Reset domain search for {updated} clinics (website_domain + domain_searched_at cleared).[/green]")
 
+        elif step == "icp":
+            updated = (
+                session.query(Clinic)
+                .filter(Clinic.icp_match.is_(True))
+                .update({Clinic.icp_match: False})
+            )
+            session.commit()
+            console.print(f"[green]Reset ICP filter for {updated} clinics (icp_match set to False).[/green]")
+
         else:
-            console.print(f"[red]Unknown step: {step}. Use 'discover', 'enrich', or 'domains'.[/red]")
+            console.print(f"[red]Unknown step: {step}. Use 'discover', 'enrich', 'domains', or 'icp'.[/red]")
             raise typer.Exit(1)
     finally:
         session.close()
