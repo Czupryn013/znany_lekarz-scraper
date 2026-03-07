@@ -595,6 +595,58 @@ def review_linkedin(
         session.close()
 
 
+# ── filter-worked ─────────────────────────────────────────────────────────
+
+
+@app.command(name="filter-worked")
+def filter_worked(
+    list_domains: bool = typer.Option(False, "--list", help="Print the worked domains list and exit"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be excluded without writing to DB"),
+) -> None:
+    """Exclude worked domains (demos, lost deals, big chains, pipeline) from ICP."""
+    from zl_scraper.pipeline.worked_domains import WORKED_DOMAINS
+
+    if list_domains:
+        table = Table(title=f"Worked Domains ({len(WORKED_DOMAINS)})")
+        table.add_column("Domain", style="cyan")
+        table.add_column("Company", style="green")
+        table.add_column("Reason", style="yellow")
+        for entry in WORKED_DOMAINS:
+            table.add_row(entry["domain"], entry["name"], entry["reason"])
+        console.print(table)
+        raise typer.Exit()
+
+    from zl_scraper.pipeline.filter_worked import exclude_worked_clinics
+
+    session = SessionLocal()
+    try:
+        result = exclude_worked_clinics(session, dry_run=dry_run)
+
+        title = "Filter-Worked Dry Run" if dry_run else "Filter-Worked Results"
+        table = Table(title=title)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+        table.add_row("ICP clinics before", str(result.total_icp))
+        table.add_row("[red]Excluded (worked domain)[/]", str(result.excluded_count))
+        table.add_row("[bold]ICP clinics after[/]", f"[bold]{result.total_icp - result.excluded_count}[/]")
+        console.print(table)
+
+        if result.excluded_clinics:
+            detail = Table(title="Excluded Clinics")
+            detail.add_column("ID", style="dim", justify="right")
+            detail.add_column("Clinic", style="cyan")
+            detail.add_column("Domain", style="blue")
+            detail.add_column("Reason", style="yellow")
+            for clinic_id, name, domain, reason in result.excluded_clinics:
+                detail.add_row(str(clinic_id), name, domain, reason)
+            console.print(detail)
+
+        if not dry_run:
+            console.print(f"[green]Excluded {result.excluded_count} clinics from ICP.[/green]")
+    finally:
+        session.close()
+
+
 # ── reset ────────────────────────────────────────────────────────────────
 
 

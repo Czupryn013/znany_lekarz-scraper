@@ -21,7 +21,7 @@ description: Guidelines for building extremely modular scraping and enrichment p
 - log any retries with the reason for the retry
 
 # Terminal
-- activate venv only once at the start of the terminal session
+- activate every time at the start of terminal session eg - the fist command you run should be `venv` (custom alias)
 - dont activate for each command
 - use `uv` for installing packages
 

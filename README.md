@@ -81,6 +81,17 @@ python src/zl_scraper/cli.py reset --step discover   # clear discovery checkpoin
 python src/zl_scraper/cli.py reset --step enrich      # clear enrichment flags
 ```
 
+### Filter Worked Domains
+
+The `filter worked domains` command allows you to filter out domains that are already marked as "worked" in the pipeline. This is useful for ensuring that no unnecessary processing is done on domains that are already excluded.
+
+#### Usage
+```bash
+python src/zl_scraper/cli.py filter-worked
+python src/zl_scraper/cli.py filter-worked --dry-run
+python src/zl_scraper/cli.py filter-worked --list
+```
+
 ## Proxy Waterfall
 
 The scraper uses a waterfall proxy strategy, trying tiers from cheapest to most expensive:

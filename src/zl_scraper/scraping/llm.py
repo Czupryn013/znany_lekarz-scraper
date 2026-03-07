@@ -257,7 +257,7 @@ async def validate_linkedin_profile(
 # ── NIP extraction ────────────────────────────────────────────────────────
 
 NIP_SYSTEM_PROMPT = (
-    "You extract the Polish NIP (tax identification number) of a company from Google search results.\n\n"
+    "You extract the Polish NIP of a company from Google search results.\n\n"
     "A valid NIP is a 10-digit number (sometimes written with dashes like 123-456-78-90).\n"
     "If you find a NIP, output ONLY the raw digits (no dashes, no spaces).\n"
     "If no NIP is found, output NULL.\n\n"
