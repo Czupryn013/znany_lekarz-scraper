@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from zl_scraper.db.engine import SessionLocal
-from zl_scraper.db.models import BoardMember, Clinic, ClinicLocation, Doctor, LinkedInCandidate, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
+from zl_scraper.db.models import BoardMember, Clinic, ClinicLocation, Doctor, Lead, LinkedInCandidate, ScrapeProgress, SearchQuery, Specialization, clinic_doctors, lead_clinic_roles
 from zl_scraper.utils.logging import setup_logging
 
 app = typer.Typer(
@@ -212,7 +212,12 @@ def status(
             .filter(*base_filter, Clinic.legal_type.isnot(None), Clinic.legal_type != "NOT_FOUND")
             .count()
         )
-        total_board = session.query(BoardMember).count()
+        total_board = (
+            session.query(BoardMember)
+            .join(Clinic, BoardMember.clinic_id == Clinic.id)
+            .filter(*base_filter)
+            .count()
+        )
 
         table.add_row("[bold]KRS / CEIDG enrichment[/]", "")
         table.add_row("KRS/CEIDG searched", f"{krs_searched} / {scope_clinics}")
@@ -552,6 +557,118 @@ def krs_enrich(
         retry_404=retry_404,
     )
     console.print("[green]KRS enrichment complete.[/green]")
+
+
+@app.command(name="sync-leads")
+def sync_leads(
+    all_clinics: bool = typer.Option(False, "--all", help="Process all clinics, not just ICP-fit"),
+) -> None:
+    """Sync board_members into leads table — dedup KRS by PESEL, CEIDG by name+clinic."""
+    from zl_scraper.pipeline.phone_enrich.sync_leads import run_sync_leads
+
+    run_sync_leads(icp_only=not all_clinics)
+    console.print("[green]Sync-leads complete.[/green]")
+
+
+@app.command(name="enrich-phones")
+def enrich_phones(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many fresh PENDING leads enter Prospeo"),
+    step: Optional[str] = typer.Option(None, "--step", help="Run only one tier: prospeo, fullenrich, or lusha"),
+) -> None:
+    """Run phone enrichment waterfall: Prospeo → FullEnrich → Lusha."""
+    from zl_scraper.pipeline.phone_enrich.enrich_phones import run_enrich_phones
+
+    run_enrich_phones(limit=limit, step=step)
+    console.print("[green]Phone enrichment complete.[/green]")
+
+
+@app.command(name="status-leads")
+def status_leads() -> None:
+    """Show lead counts and phone enrichment progress."""
+    from sqlalchemy import func
+
+    session = SessionLocal()
+    try:
+        total = session.query(Lead).count()
+        if total == 0:
+            console.print("[yellow]No leads yet. Run sync-leads first.[/yellow]")
+            return
+
+        # By enrichment status
+        status_counts = (
+            session.query(Lead.enrichment_status, func.count(Lead.id))
+            .group_by(Lead.enrichment_status)
+            .all()
+        )
+        status_map = dict(status_counts)
+
+        # By lead source
+        source_counts = (
+            session.query(Lead.lead_source, func.count(Lead.id))
+            .group_by(Lead.lead_source)
+            .all()
+        )
+
+        # Contact stats
+        with_phone = session.query(Lead).filter(Lead.phone.isnot(None)).count()
+        with_email = session.query(Lead).filter(Lead.email.isnot(None)).count()
+        with_linkedin = session.query(Lead).filter(Lead.linkedin_url.isnot(None)).count()
+
+        # By phone source
+        phone_source_counts = (
+            session.query(Lead.phone_source, func.count(Lead.id))
+            .filter(Lead.phone_source.isnot(None))
+            .group_by(Lead.phone_source)
+            .all()
+        )
+
+        # Roles
+        total_roles = session.query(func.count()).select_from(lead_clinic_roles).scalar()
+        unique_clinics = (
+            session.query(func.count(func.distinct(lead_clinic_roles.c.clinic_id)))
+            .scalar()
+        )
+
+        table = Table(title="Leads Status")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+
+        table.add_row("[bold]Overview[/]", "")
+        table.add_row("Total leads", str(total))
+        table.add_row("Linked to clinics", f"{unique_clinics} clinics via {total_roles} roles")
+        table.add_row("───", "───")
+
+        table.add_row("[bold]By source[/]", "")
+        for source, cnt in sorted(source_counts, key=lambda x: -x[1]):
+            table.add_row(f"  {source}", str(cnt))
+        table.add_row("───", "───")
+
+        table.add_row("[bold]Enrichment status[/]", "")
+        status_order = ["PENDING", "PROSPEO_DONE", "FE_DONE", "LUSHA_DONE"]
+        for s in status_order:
+            cnt = status_map.get(s, 0)
+            if cnt > 0:
+                table.add_row(f"  {s}", str(cnt))
+        # Any other statuses not in the expected list
+        for s, cnt in sorted(status_map.items()):
+            if s not in status_order and cnt > 0:
+                table.add_row(f"  {s}", str(cnt))
+        table.add_row("───", "───")
+
+        table.add_row("[bold]Contact data[/]", "")
+        table.add_row("With phone", f"{with_phone} / {total}")
+        table.add_row("With email", f"{with_email} / {total}")
+        table.add_row("With LinkedIn URL", f"{with_linkedin} / {total}")
+        table.add_row("───", "───")
+
+        if phone_source_counts:
+            table.add_row("[bold]Phones by source[/]", "")
+            for source, cnt in sorted(phone_source_counts, key=lambda x: -x[1]):
+                table.add_row(f"  {source}", str(cnt))
+
+        console.print(table)
+    finally:
+        session.close()
 
 
 @app.command(name="find-nip")

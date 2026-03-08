@@ -29,6 +29,15 @@ clinic_doctors = Table(
     Column("doctor_id", Integer, ForeignKey("doctors.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# M2M association table: leads <-> clinics (with role)
+lead_clinic_roles = Table(
+    "lead_clinic_roles",
+    Base.metadata,
+    Column("lead_id", Integer, ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True),
+    Column("clinic_id", Integer, ForeignKey("clinics.id", ondelete="CASCADE"), primary_key=True),
+    Column("role", String(128), nullable=False, primary_key=True),
+)
+
 
 class Specialization(Base):
     """Medical specialization from ZnanyLekarz (e.g. ginekolog, ortopeda)."""
@@ -84,6 +93,7 @@ class Clinic(Base):
     doctors = relationship("Doctor", secondary=clinic_doctors, back_populates="clinics")
     linkedin_candidates = relationship("LinkedInCandidate", back_populates="clinic", cascade="all, delete-orphan")
     board_members = relationship("BoardMember", back_populates="clinic", cascade="all, delete-orphan")
+    leads = relationship("Lead", secondary=lead_clinic_roles, back_populates="clinics")
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -186,6 +196,32 @@ class BoardMember(Base):
 
     def __repr__(self) -> str:
         return f"<BoardMember(id={self.id}, name='{self.full_name}', source='{self.source}')>"
+
+
+class Lead(Base):
+    """A person (board member / owner / employee) tracked for phone enrichment."""
+
+    __tablename__ = "leads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pesel = Column(String(11), nullable=True, unique=True, index=True)
+    full_name = Column(String(256), nullable=False)
+    phone = Column(String(64), nullable=True)
+    email = Column(String(256), nullable=True)
+    linkedin_url = Column(String(512), nullable=True)
+    lead_source = Column(String(32), nullable=False)  # KRS, JDG, SC, LINKEDIN, EMPLOYEE
+    phone_source = Column(String(32), nullable=True)  # PROSPEO, FULLENRICH, LUSHA, CEIDG
+    enrichment_status = Column(String(32), nullable=False, default="PENDING")  # see EnrichmentStatus
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    clinics = relationship("Clinic", secondary=lead_clinic_roles, back_populates="leads")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Lead(id={self.id}, name='{self.full_name}', "
+            f"status='{self.enrichment_status}', phone='{self.phone}')>"
+        )
 
 
 class LinkedInCandidate(Base):

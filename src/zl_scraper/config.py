@@ -57,6 +57,13 @@ DOMAIN_CHECKPOINT_SIZE: int = int(os.getenv("DOMAIN_CHECKPOINT_SIZE", "400"))
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
+# ── Phone enrichment APIs ────────────────────────────────────────────────
+PROSPEO_API_KEY: str = os.getenv("PROSPEO_API_KEY", "")
+FULLENRICH_API_KEY: str = os.getenv("FULLENRICH_API_KEY", "")
+LUSHA_API_KEY: str = os.getenv("LUSHA_API_KEY", "")
+FULLENRICH_POLL_INTERVAL_SECS: int = int(os.getenv("FULLENRICH_POLL_INTERVAL_SECS", "15"))
+FULLENRICH_POLL_TIMEOUT_SECS: int = int(os.getenv("FULLENRICH_POLL_TIMEOUT_SECS", "600"))
+
 # ── ZnanyLekarz URLs ────────────────────────────────────────────────────
 ZL_BASE_URL = "https://www.znanylekarz.pl"
 ZL_SEARCH_URL = f"{ZL_BASE_URL}/szukaj"

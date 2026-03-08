@@ -1,0 +1,1339 @@
+{
+  "name": "enrich board-prokura phones",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1712,
+        -128
+      ],
+      "id": "9546677d-1d37-494a-a363-70e99fe5ec71",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "58f1a575-bdf9-47c0-9622-cbbafb1ccb9e",
+              "name": "sheet_id",
+              "value": "1-X1Rkk5j6XSCj8EnzkflGQUNr3a14vEDCUhOr3LC04Q",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1488,
+        -128
+      ],
+      "id": "9a8a460a-5f0c-4867-b497-d344e23f0b80",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.prospeo.io/bulk-enrich-person",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "only_verified_mobile",
+              "value": "true"
+            },
+            {
+              "name": "data",
+              "value": "={{ $json.leads }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1472,
+        -32
+      ],
+      "id": "9212cda0-6111-47e1-a640-812c6f098e22",
+      "name": "Prospeo enrich",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiP5uLinKjqXkwA8",
+          "name": "Prospeo Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9e736dc4-59b2-4444-999a-b45a56d9d321",
+              "name": "identifier",
+              "value": "={{ $json.row_number.toString() }}",
+              "type": "string"
+            },
+            {
+              "id": "834fa2ec-345f-4a60-8b1c-32c0df75e7d9",
+              "name": "full_name",
+              "value": "={{ $json.full_name }}",
+              "type": "string"
+            },
+            {
+              "id": "6698612c-f29e-4e56-ad6d-966a264851ae",
+              "name": "company_website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            },
+            {
+              "id": "36080ed0-7fe2-4999-a66e-2fdc6750fe97",
+              "name": "company_name",
+              "value": "={{ $json.company_name }}",
+              "type": "string"
+            },
+            {
+              "id": "142603d7-c158-491d-be85-77efe3828c80",
+              "name": "linkedin_url",
+              "value": "={{ $json.linkedin_yes }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        848,
+        -32
+      ],
+      "id": "0b86964c-83c7-491e-b9f3-70c3ba529082",
+      "name": "format Prospeo input"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "prospeo_data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -32
+      ],
+      "id": "0ba09c6b-cda7-4303-ba17-9b0ed5b72be4",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const leads = $input.first().json.prospeo_data\nconst DEFAULT_LEAD = {\n  identifier: \"9999999\",\n  full_name: \"Lena Garnik\",\n  company_name: \"Centrum Medyczne Gamma\",\n  company_website: \"cmgamma.pl\"\n}\nleads.push(DEFAULT_LEAD)\n\nreturn {json: {leads}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        -32
+      ],
+      "id": "d12eb05e-b557-41f2-825c-91cdaf103f6a",
+      "name": "add deafult lead for Prospeo"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "row_number",
+              "field2": "identifier"
+            }
+          ]
+        },
+        "options": {
+          "fuzzyCompare": false
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2160,
+        -464
+      ],
+      "id": "ec1ba4f0-019c-4845-adc2-38b8fd044105",
+      "name": "Merge prospeo found"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.pesel.toString() }}",
+            "full_name": "={{ $json.full_name }}",
+            "company_name": "={{ $json.company_name }}",
+            "lead_source": "KRS",
+            "phone_source": "={{ $json.linkedin_yes ? \"PROSPEO - LINKEDIN\" : \"PROSPEO - NO LINKEDIN\" }}",
+            "phone": "={{ $json.person.mobile.mobile }}",
+            "email": "={{ $json.person.email.email }}",
+            "linkedin_url": "={{ $json.person.linkedin_url }}",
+            "titles": "={{ [...new Set([$json.person.current_job_title, $json.person.job_history.map(h => h.title)].flat().filter(Boolean))].join(' | ') }}"
+          },
+          "matchingColumns": [
+            "lead_id"
+          ],
+          "schema": [
+            {
+              "id": "full_name",
+              "displayName": "full_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "titles",
+              "displayName": "titles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone_source",
+              "displayName": "phone_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lead_source",
+              "displayName": "lead_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lead_id",
+              "displayName": "lead_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "linkedin_url",
+              "displayName": "linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "useAppend": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2368,
+        -464
+      ],
+      "id": "2a24578c-3541-47ed-a4f2-91a7a796da32",
+      "name": "save to leads",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d3ffd242-bffa-4492-a12b-7457f752e2c4",
+              "name": "identifier",
+              "value": "={{ $json.identifier.toNumber() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1936,
+        -32
+      ],
+      "id": "51bd9f0c-4a1e-4ceb-9422-5e6354f41f60",
+      "name": "str -> int (id"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "matched",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        -32
+      ],
+      "id": "a880bcd4-dcf3-46a9-943c-85f483118900",
+      "name": "Split Out matched"
+    },
+    {
+      "parameters": {
+        "mode": "combineBySql",
+        "query": "SELECT input1.* FROM input1 \nLEFT JOIN input2 ON input1.row_number = input2.identifier\nWHERE input2.identifier IS NULL;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2288,
+        -112
+      ],
+      "id": "1e82425c-5677-4218-a0c4-8e7cea829c81",
+      "name": "merge not found"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -480
+      ],
+      "id": "ef25a755-8423-4159-b993-f37491980bd4",
+      "name": "dec"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.fullenrich.com/api/v1/contact/enrich/bulk",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ \"KRS-\" + $now.format('yyyy-MM-dd_HH-mm') }}"
+            },
+            {
+              "name": "webhook_url",
+              "value": "https://piotr-n8n.up.railway.app/webhook/fd916a21-8453-4638-b655-d22b1e34c414"
+            },
+            {
+              "name": "datas",
+              "value": "={{ $json.datas }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2960,
+        -112
+      ],
+      "id": "84d07bbb-64ed-4a04-8464-d202c099779d",
+      "name": "run FullEnrich query (max 100)",
+      "credentials": {
+        "fullEnrichApi": {
+          "id": "R0agNMvKwiRIapEl",
+          "name": "FullEnrich account"
+        },
+        "httpBearerAuth": {
+          "id": "7laUxZSDGnN5fIgf",
+          "name": "FullEnrich Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a3997421-bf94-4a41-9b07-f84d3fa4a74b",
+              "name": "firstname",
+              "value": "={{ $json.full_name.split(\" \")[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "e67184c9-5687-4e21-8def-a67d060e7ccb",
+              "name": "lastname",
+              "value": "={{ $json.full_name.split(\" \").slice(1).join(\" \") }}",
+              "type": "string"
+            },
+            {
+              "id": "675367e0-d178-40a6-97e7-688cabd2b373",
+              "name": "linkedin_url",
+              "value": "={{ $json.linkedin_yes }}",
+              "type": "string"
+            },
+            {
+              "id": "c20012cd-5fff-4963-b174-04452f2dc0f8",
+              "name": "domain",
+              "value": "={{ $json.website && $json.website.includes('.') ? $json.website : \"repto.pl\" }}",
+              "type": "string"
+            },
+            {
+              "id": "3acf753e-9e4d-42c8-9218-247a89f930c7",
+              "name": "company_name",
+              "value": "={{ $json.company_name }}",
+              "type": "string"
+            },
+            {
+              "id": "174551e0-8464-433b-9060-0eb7f4366032",
+              "name": "enrich_fields",
+              "value": "[\"contact.phones\"]",
+              "type": "array"
+            },
+            {
+              "id": "8660f9fb-6659-40a8-a795-be7829b8fd90",
+              "name": "custom.pesel",
+              "value": "={{ $json.pesel }}",
+              "type": "string"
+            },
+            {
+              "id": "822979d6-a7ee-423d-9226-8bf68f379847",
+              "name": "custom.roles",
+              "value": "={{ $json.roles.slice(0, 90) }}",
+              "type": "string"
+            },
+            {
+              "id": "7180e4c9-969f-46d6-90b3-375f28205763",
+              "name": "custom.linkedin_yes",
+              "value": "={{ $json.linkedin_id }}",
+              "type": "string"
+            },
+            {
+              "id": "29e45e3a-dd57-4785-b87e-809d5b22b2a9",
+              "name": "custom.nip",
+              "value": "={{ $json.nip }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": true
+        }
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2496,
+        -112
+      ],
+      "id": "003cad38-5775-48cb-8010-6040222e81d4",
+      "name": "format FullEnrich input"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "datas",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2704,
+        -112
+      ],
+      "id": "a64011b9-5867-451e-b3c3-a4ebe6a73533",
+      "name": "Aggregate1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1200,
+        -528
+      ],
+      "id": "fb502da5-b449-4d59-bf85-bdadc02a3493",
+      "name": "get leads",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "404-leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1200,
+        -336
+      ],
+      "id": "8da626f3-69b6-4637-8da9-b045724b3842",
+      "name": "get 404-leads",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "lead_id",
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -944,
+        -352
+      ],
+      "id": "7328602e-d2bc-46d5-afe5-829c62168589",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "board-linkedin",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -944,
+        -128
+      ],
+      "id": "54f7d380-b847-4119-af29-ad60f28c616d",
+      "name": "get board-linkedin",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "lead_id",
+              "field2": "pesel"
+            }
+          ]
+        },
+        "joinMode": "enrichInput2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -656,
+        -144
+      ],
+      "id": "ecbf521b-c76b-4133-94b4-cd309b03ecb0",
+      "name": "right join (keep board-linkedin)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "950e3ec7-2229-4072-947c-dfaf60644b43",
+              "leftValue": "={{ $json.pesel }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -448,
+        -144
+      ],
+      "id": "1675d3e2-4360-44f3-94c7-53031659b8df",
+      "name": "no empty pesel"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d9b131d5-6114-4dde-a8b0-c91632e72d6b",
+              "leftValue": "={{ $json.lead_source }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "757167dc-c3f4-490c-849f-5d7549b9eaca",
+              "leftValue": "={{ !$json.phone && $json.linkedin_url === \"\" && $json.linkedin_yes !== \"\" }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -208,
+        -144
+      ],
+      "id": "6462b3f7-cafa-4556-8a20-5025d37e340e",
+      "name": "not processed or linkedin added1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "filtred",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -944,
+        128
+      ],
+      "id": "155a7707-16cb-4545-ab54-90c2d8202509",
+      "name": "get filtred",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "first_nip",
+              "field2": "nip"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        272,
+        -128
+      ],
+      "id": "11be1aae-f726-426d-a59f-44bfb4eb80c2",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d091906e-0915-49fe-96f1-815201c3ba89",
+              "name": "nip",
+              "value": "={{ $json.nip }}",
+              "type": "string"
+            },
+            {
+              "id": "2fefc5ce-778a-4524-a950-b446e18a95f4",
+              "name": "company_name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "e804f75b-1590-43d1-b54a-9e64694b9e05",
+              "name": "website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -736,
+        128
+      ],
+      "id": "4a6d03c9-fa6f-434a-91f4-41234f6eaa3b",
+      "name": "stringify nip"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1zUNf_W1SPlKhTFGNRd7Zj4_vTdlnhkgETwXqUS715f4",
+          "mode": "list",
+          "cachedResultName": "lista klientów i leadów",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zUNf_W1SPlKhTFGNRd7Zj4_vTdlnhkgETwXqUS715f4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1480133992,
+          "mode": "list",
+          "cachedResultName": "repto_crm",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zUNf_W1SPlKhTFGNRd7Zj4_vTdlnhkgETwXqUS715f4/edit#gid=1480133992"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -208,
+        -464
+      ],
+      "id": "919e423f-0849-4b97-92e2-c5a878793f7a",
+      "name": "get clients list",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "rkQw6mB1JpEFyx03",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "55442b33-c54a-4d1c-ac37-9b8cb7e935b6",
+              "name": "linkedin_url",
+              "value": "={{ $json.linkedin_url }}",
+              "type": "string"
+            },
+            {
+              "id": "595b9bdb-20bc-47b2-8d63-a97677cef0cb",
+              "name": "reason",
+              "value": "={{ $json.reason }}",
+              "type": "string"
+            },
+            {
+              "id": "a9a144c2-1212-45f6-91ae-fac41cae90e1",
+              "name": "linkedin_id",
+              "value": "={{ $json.linkedin_url.match(/linkedin\\.com\\/in\\/([^/?#\\s]+)/)?.[1] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        -464
+      ],
+      "id": "c7a6cc19-bfa0-496f-a159-efb59f69465b",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "94263972-3fbe-4810-a352-046b7aea4f94",
+              "name": "first_nip",
+              "value": "={{ $json.nip_list.split(\", \")[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "8443487f-b57e-43d2-9b42-cad8b69ae0e0",
+              "name": "linkedin_id",
+              "value": "={{ $json.linkedin_yes.match(/linkedin\\.com\\/in\\/([^/?#\\s]+)/)?.[1] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        -144
+      ],
+      "id": "764ec9ea-6cd5-4db0-b9a1-ec0b0c5e4df1",
+      "name": "get first_nip and linkedin_id"
+    },
+    {
+      "parameters": {
+        "mode": "combineBySql",
+        "query": "SELECT * FROM input2 LEFT JOIN input1 ON input1.linkedin_id = input2.linkedin_id\nWHERE input1.linkedin_id is NULL",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        -320
+      ],
+      "id": "223a26f7-d11d-4249-a5fa-7f2a91c54a1b",
+      "name": "exclude clients/leads from CRM"
+    },
+    {
+      "parameters": {
+        "content": "## Enrich with first_nip company - skips other companies"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        96,
+        -304
+      ],
+      "id": "37687b85-2f3e-4fad-ab08-4693bca525be",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "maxItems": 49
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        608,
+        -128
+      ],
+      "id": "e2c9ecb1-fcff-4d37-8f58-f20806e5d661",
+      "name": "limit 50"
+    },
+    {
+      "parameters": {
+        "content": "## Exclude current clients and fully lost companies"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        -640
+      ],
+      "id": "63c3b82f-868c-408f-8d4b-46720746b38a",
+      "name": "Sticky Note1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "get board-linkedin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get leads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get 404-leads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get filtred",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get clients list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format Prospeo input": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "add deafult lead for Prospeo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prospeo enrich": {
+      "main": [
+        [
+          {
+            "node": "Split Out matched",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "add deafult lead for Prospeo": {
+      "main": [
+        [
+          {
+            "node": "Prospeo enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge prospeo found": {
+      "main": [
+        [
+          {
+            "node": "save to leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save to leads": {
+      "main": [
+        []
+      ]
+    },
+    "str -> int (id": {
+      "main": [
+        [
+          {
+            "node": "Merge prospeo found",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "merge not found",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Split Out matched": {
+      "main": [
+        [
+          {
+            "node": "str -> int (id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dec": {
+      "main": [
+        [
+          {
+            "node": "Merge prospeo found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge not found": {
+      "main": [
+        [
+          {
+            "node": "format FullEnrich input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format FullEnrich input": {
+      "main": [
+        [
+          {
+            "node": "Aggregate1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate1": {
+      "main": [
+        [
+          {
+            "node": "run FullEnrich query (max 100)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get leads": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get 404-leads": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "right join (keep board-linkedin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get board-linkedin": {
+      "main": [
+        [
+          {
+            "node": "right join (keep board-linkedin)",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "right join (keep board-linkedin)": {
+      "main": [
+        [
+          {
+            "node": "no empty pesel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "no empty pesel": {
+      "main": [
+        [
+          {
+            "node": "not processed or linkedin added1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "not processed or linkedin added1": {
+      "main": [
+        [
+          {
+            "node": "get first_nip and linkedin_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "exclude clients/leads from CRM",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get filtred": {
+      "main": [
+        [
+          {
+            "node": "stringify nip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "stringify nip": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "get clients list": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "exclude clients/leads from CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get first_nip and linkedin_id": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "exclude clients/leads from CRM": {
+      "main": [
+        [
+          {
+            "node": "limit 50",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "limit 50": {
+      "main": [
+        [
+          {
+            "node": "format Prospeo input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "dec",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "merge not found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "7e1e82a9-911c-4aa4-891a-fa5560dfb6d4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1aace04e8bf1253351d555519cd88036a0d313464579f7ba6219a6435abba730"
+  },
+  "id": "10NDFMxc3epiDkvV",
+  "tags": []
+}
