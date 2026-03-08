@@ -4,6 +4,7 @@ import asyncio
 import csv
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -369,6 +370,171 @@ def export(
             raise typer.Exit(1)
 
         console.print(f"[green]Exported {len(rows)} clinics to {filepath}[/green]")
+    finally:
+        session.close()
+
+
+def _parse_pesel_birth_date(pesel: Optional[str]) -> Optional[date]:
+    """Return birth date parsed from PESEL, or None when invalid/unknown."""
+    if not pesel:
+        return None
+
+    digits = "".join(ch for ch in pesel if ch.isdigit())
+    if len(digits) != 11:
+        return None
+
+    yy = int(digits[0:2])
+    mm_raw = int(digits[2:4])
+    dd = int(digits[4:6])
+
+    if 1 <= mm_raw <= 12:
+        century = 1900
+        mm = mm_raw
+    elif 21 <= mm_raw <= 32:
+        century = 2000
+        mm = mm_raw - 20
+    elif 41 <= mm_raw <= 52:
+        century = 2100
+        mm = mm_raw - 40
+    elif 61 <= mm_raw <= 72:
+        century = 2200
+        mm = mm_raw - 60
+    elif 81 <= mm_raw <= 92:
+        century = 1800
+        mm = mm_raw - 80
+    else:
+        return None
+
+    year = century + yy
+    try:
+        return date(year, mm, dd)
+    except ValueError:
+        return None
+
+
+def _age_from_pesel(pesel: Optional[str]) -> Optional[int]:
+    """Return age in full years parsed from PESEL, or None when unavailable."""
+    birth_date = _parse_pesel_birth_date(pesel)
+    if not birth_date:
+        return None
+
+    today = date.today()
+    age = today.year - birth_date.year
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return age
+
+
+@app.command(name="export-leads")
+def export_leads(
+    output: str = typer.Option("leads_export.csv", "--output", help="Output CSV file path"),
+    phone_only: bool = typer.Option(False, "--phone-only", help="Include only leads with a phone"),
+    email_only: bool = typer.Option(False, "--email-only", help="Include only leads with an email"),
+) -> None:
+    """Export leads to CSV with associated companies/roles and age derived from PESEL.
+
+    Filters are stackable. If no filters are provided, defaults to phone-only.
+    """
+    session = SessionLocal()
+    try:
+        query = session.query(Lead).order_by(Lead.id)
+
+        # Default behavior: only leads with phone unless user provided explicit filters.
+        effective_phone_only = phone_only or not (phone_only or email_only)
+
+        if effective_phone_only:
+            query = query.filter(Lead.phone.isnot(None), Lead.phone != "")
+        if email_only:
+            query = query.filter(Lead.email.isnot(None), Lead.email != "")
+
+        leads = query.all()
+        if not leads:
+            console.print("[yellow]No leads matched export filters.[/yellow]")
+            return
+
+        role_rows = (
+            session.query(
+                lead_clinic_roles.c.lead_id,
+                Clinic.name,
+                Clinic.legal_name,
+                Clinic.website_domain,
+                lead_clinic_roles.c.role,
+            )
+            .join(Clinic, Clinic.id == lead_clinic_roles.c.clinic_id)
+            .order_by(lead_clinic_roles.c.lead_id, Clinic.id, lead_clinic_roles.c.role)
+            .all()
+        )
+
+        companies_by_lead: dict[int, list[str]] = {}
+        companies_index: dict[int, dict[str, dict]] = {}
+
+        for lead_id, clinic_name, legal_name, domain, role in role_rows:
+            company_base = legal_name or clinic_name or "Unknown company"
+            domain_text = (domain or "").strip()
+            domain_key = domain_text.lower()
+
+            # Dedup by domain when domain exists; otherwise keep rows separate.
+            if domain_key:
+                dedup_key = f"domain:{domain_key}"
+                company_label = f"{company_base} ({domain_text})"
+            else:
+                dedup_key = f"nodomain:{company_base}:{role}"
+                company_label = company_base
+
+            lead_companies = companies_index.setdefault(lead_id, {})
+            if dedup_key not in lead_companies:
+                lead_companies[dedup_key] = {
+                    "label": company_label,
+                    "roles": [],
+                }
+
+            roles = lead_companies[dedup_key]["roles"]
+            if role not in roles:
+                roles.append(role)
+
+        for lead_id, grouped in companies_index.items():
+            bullets = []
+            for entry in grouped.values():
+                roles_text = ", ".join(entry["roles"])
+                bullets.append(f"- {entry['label']} — {roles_text}")
+            companies_by_lead[lead_id] = bullets
+
+        rows = []
+        for lead in leads:
+            rows.append(
+                {
+                    "lead_id": lead.id,
+                    "full_name": lead.full_name,
+                    "pesel": lead.pesel,
+                    "age": _age_from_pesel(lead.pesel),
+                    "phone": lead.phone,
+                    "email": lead.email,
+                    "linkedin_url": lead.linkedin_url,
+                    "lead_source": lead.lead_source,
+                    "phone_source": lead.phone_source,
+                    "enrichment_status": lead.enrichment_status,
+                    "created_at": str(lead.created_at),
+                    "updated_at": str(lead.updated_at) if lead.updated_at else None,
+                    "companies": "\n".join(companies_by_lead.get(lead.id, [])),
+                }
+            )
+
+        filepath = output if output.lower().endswith(".csv") else f"{output}.csv"
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+
+        active_filters = []
+        if effective_phone_only:
+            active_filters.append("phone-only")
+        if email_only:
+            active_filters.append("email-only")
+        filters_text = " + ".join(active_filters) if active_filters else "none"
+
+        console.print(
+            f"[green]Exported {len(rows)} leads to {filepath} (filters: {filters_text}).[/green]"
+        )
     finally:
         session.close()
 
