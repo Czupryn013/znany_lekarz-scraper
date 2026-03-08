@@ -72,10 +72,18 @@ class Clinic(Base):
     linkedin_searched_at = Column(DateTime, nullable=True)
     nip_searched_at = Column(DateTime, nullable=True)
 
+    # KRS / CEIDG registry fields
+    krs_number = Column(String(32), nullable=True)
+    regon = Column(String(32), nullable=True)
+    registration_date = Column(String(32), nullable=True)
+    legal_type = Column(String(16), nullable=True)  # KRS, CEIDG_JDG, CEIDG_SC, NOT_FOUND
+    krs_searched_at = Column(DateTime, nullable=True)
+
     locations = relationship("ClinicLocation", back_populates="clinic", cascade="all, delete-orphan")
     search_queries = relationship("SearchQuery", back_populates="clinic", cascade="all, delete-orphan")
     doctors = relationship("Doctor", secondary=clinic_doctors, back_populates="clinics")
     linkedin_candidates = relationship("LinkedInCandidate", back_populates="clinic", cascade="all, delete-orphan")
+    board_members = relationship("BoardMember", back_populates="clinic", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -160,6 +168,24 @@ class ScrapeProgress(Base):
             f"<ScrapeProgress(spec_id={self.specialization_id}, "
             f"page={self.last_page_scraped}, status='{self.status}')>"
         )
+
+
+class BoardMember(Base):
+    """A board member / prokura / owner discovered from KRS or CEIDG registry."""
+
+    __tablename__ = "board_members"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False)
+    full_name = Column(String(256), nullable=False)
+    pesel = Column(String(11), nullable=True)
+    role = Column(String(128), nullable=True)
+    source = Column(String(16), nullable=False)  # KRS_BOARD, KRS_PROKURA, CEIDG_JDG, CEIDG_SC
+
+    clinic = relationship("Clinic", back_populates="board_members")
+
+    def __repr__(self) -> str:
+        return f"<BoardMember(id={self.id}, name='{self.full_name}', source='{self.source}')>"
 
 
 class LinkedInCandidate(Base):

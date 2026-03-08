@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from zl_scraper.db.engine import SessionLocal
-from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, LinkedInCandidate, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
+from zl_scraper.db.models import BoardMember, Clinic, ClinicLocation, Doctor, LinkedInCandidate, ScrapeProgress, SearchQuery, Specialization, clinic_doctors
 from zl_scraper.utils.logging import setup_logging
 
 app = typer.Typer(
@@ -199,6 +199,25 @@ def status(
         table.add_row("LinkedIn MAYBE pending", str(maybe_pending))
         table.add_row("NIP found (SERP)", f"{nip_from_serp} / {scope_clinics}")
         table.add_row("NIP SERP searched", f"{nip_searched} / {scope_clinics}")
+        table.add_row("───", "───")
+
+        # KRS / CEIDG enrichment metrics
+        krs_searched = (
+            session.query(Clinic)
+            .filter(*base_filter, Clinic.krs_searched_at.isnot(None))
+            .count()
+        )
+        krs_found = (
+            session.query(Clinic)
+            .filter(*base_filter, Clinic.legal_type.isnot(None), Clinic.legal_type != "NOT_FOUND")
+            .count()
+        )
+        total_board = session.query(BoardMember).count()
+
+        table.add_row("[bold]KRS / CEIDG enrichment[/]", "")
+        table.add_row("KRS/CEIDG searched", f"{krs_searched} / {scope_clinics}")
+        table.add_row("KRS/CEIDG found", f"{krs_found} / {scope_clinics}")
+        table.add_row("Board members total", str(total_board))
         table.add_row("───", "───")
 
         if not icp_only:
@@ -438,6 +457,7 @@ def filter_clinics(
         table.add_row("Total enriched clinics", str(result.total_enriched))
         table.add_row("[red]Rejected (too few doctors)[/]", str(result.rejected_doctors))
         table.add_row("[red]Rejected (wrong specialization)[/]", str(result.rejected_specialization))
+        table.add_row("[red]Rejected (public / big chain)[/]", str(result.rejected_name))
         table.add_row("[bold]Clinics matched (ICP fit)[/]", f"[bold]{result.total_matched}[/]")
         table.add_row("───", "───")
         table.add_row("Total doctors in matched", str(result.total_doctors_in_matched))
@@ -513,6 +533,25 @@ def find_linkedin(
 
     asyncio.run(run_find_linkedin(limit=limit, skip_maybe=skip_maybe, icp_only=not all_clinics))
     console.print("[green]LinkedIn discovery complete.[/green]")
+
+
+@app.command(name="krs-enrich")
+def krs_enrich(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+    all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
+    headless: bool = typer.Option(False, "--headless", help="Run browser in headless mode (default: visible)"),
+    retry_404: bool = typer.Option(False, "--retry-404", help="Re-scrape clinics with NOT_FOUND/ERROR or 0 board members"),
+) -> None:
+    """Look up clinics by NIP in KRS/CEIDG, extract board members, save to DB."""
+    from zl_scraper.pipeline.krs_scraper.pipeline import run_krs_enrich
+
+    run_krs_enrich(
+        limit=limit,
+        icp_only=not all_clinics,
+        headless=headless,
+        retry_404=retry_404,
+    )
+    console.print("[green]KRS enrichment complete.[/green]")
 
 
 @app.command(name="find-nip")
@@ -707,8 +746,27 @@ def reset(
             session.commit()
             console.print(f"[green]Reset ICP filter for {updated} clinics (icp_match set to False).[/green]")
 
+        elif step == "krs":
+            deleted_members = session.query(BoardMember).delete()
+            updated = (
+                session.query(Clinic)
+                .filter(Clinic.krs_searched_at.isnot(None))
+                .update({
+                    Clinic.krs_searched_at: None,
+                    Clinic.legal_type: None,
+                    Clinic.krs_number: None,
+                    Clinic.regon: None,
+                    Clinic.registration_date: None,
+                })
+            )
+            session.commit()
+            console.print(
+                f"[green]Reset KRS enrichment for {updated} clinics "
+                f"({deleted_members} board members removed).[/green]"
+            )
+
         else:
-            console.print(f"[red]Unknown step: {step}. Use 'discover', 'enrich', 'domains', or 'icp'.[/red]")
+            console.print(f"[red]Unknown step: {step}. Use 'discover', 'enrich', 'domains', 'icp', or 'krs'.[/red]")
             raise typer.Exit(1)
     finally:
         session.close()

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,20 @@ DEFAULT_EXCLUDED_KEYWORDS: list[str] = [
 ]
 
 DEFAULT_MIN_DOCTORS = 20
+
+# ── Name-based exclusion patterns ─────────────────────────────────────────
+# Clinics whose *name* or *legal_name* match any of these are excluded.
+
+_PUBLIC_CLINIC_RE = re.compile(
+    r"(wojsko|uniwers|wojewód|powiatow)|(?<!\S)publiczny\b",
+    re.IGNORECASE,
+)
+
+_BIG_CHAIN_RE = re.compile(
+    r"\b(lux\s?med|medicover|salve|polmed|scanmed|świat\s+zdrowia"
+    r"|profemed|enel-med|allmedica|cmp|flosmed)\b",
+    re.IGNORECASE,
+)
 
 
 def load_all_specializations(path: Path = SPECIALIZATIONS_PATH) -> list[dict[str, Any]]:
@@ -83,6 +98,15 @@ def build_excluded_specialization_names(
     ]
 
 
+def is_excluded_by_name(clinic: Clinic) -> bool:
+    """Return True if the clinic name or legal_name matches a public-clinic or big-chain pattern."""
+    texts = [t for t in (clinic.name, clinic.legal_name) if t]
+    return any(
+        _PUBLIC_CLINIC_RE.search(t) or _BIG_CHAIN_RE.search(t)
+        for t in texts
+    )
+
+
 class FilterResult:
     """Container for staged filter output with per-step rejection counts."""
 
@@ -91,11 +115,13 @@ class FilterResult:
         total_enriched: int,
         rejected_doctors: int,
         rejected_specialization: int,
+        rejected_name: int,
         matched: list[Clinic],
     ) -> None:
         self.total_enriched = total_enriched
         self.rejected_doctors = rejected_doctors
         self.rejected_specialization = rejected_specialization
+        self.rejected_name = rejected_name
         self.matched = matched
 
     @property
@@ -104,7 +130,7 @@ class FilterResult:
 
     @property
     def total_filtered_out(self) -> int:
-        return self.rejected_doctors + self.rejected_specialization
+        return self.rejected_doctors + self.rejected_specialization + self.rejected_name
 
     @property
     def total_doctors_in_matched(self) -> int:
@@ -151,26 +177,33 @@ def query_filtered_clinics(
         .subquery()
     )
 
-    clinics = (
+    passed_spec = (
         passed_doctors_q
         .filter(Clinic.id.in_(session.query(has_allowed_spec.c.clinic_id)))
         .order_by(Clinic.doctors_count.desc())
         .all()
     )
-    rejected_specialization = passed_doctors_count - len(clinics)
+    rejected_specialization = passed_doctors_count - len(passed_spec)
+
+    # Stage 3: exclude public clinics and big chains by name / legal_name
+    clinics = [c for c in passed_spec if not is_excluded_by_name(c)]
+    rejected_name = len(passed_spec) - len(clinics)
 
     logger.info(
-        "Filter: %d enriched → %d rejected (doctors < %d) → %d rejected (spec) → %d matched",
+        "Filter: %d enriched → %d rejected (doctors < %d) → %d rejected (spec) "
+        "→ %d rejected (name) → %d matched",
         total_enriched,
         rejected_doctors,
         min_doctors,
         rejected_specialization,
+        rejected_name,
         len(clinics),
     )
     return FilterResult(
         total_enriched=total_enriched,
         rejected_doctors=rejected_doctors,
         rejected_specialization=rejected_specialization,
+        rejected_name=rejected_name,
         matched=clinics,
     )
 
