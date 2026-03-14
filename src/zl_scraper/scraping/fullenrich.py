@@ -195,3 +195,52 @@ def parse_fullenrich_result(item: dict) -> dict:
         "email": email,
         "linkedin_url": linkedin_url,
     }
+
+
+# ── People Search API (v2) ──────────────────────────────────────────────
+
+FULLENRICH_SEARCH_URL = "https://app.fullenrich.com/api/v2/people/search"
+
+
+def search_person(full_name: str, company_domain: str) -> dict | None:
+    """Search for a person by name + company domain via FullEnrich People Search API.
+
+    Returns dict with linkedin_url and connection_count if found, else None.
+    """
+    if not full_name or not company_domain:
+        return None
+
+    domain = _sanitize_domain(company_domain)
+    logger.info("FullEnrich search: %s @ %s", full_name, domain)
+
+    resp = httpx.post(
+        FULLENRICH_SEARCH_URL,
+        headers=_auth_headers(),
+        json={
+            "limit": 1,
+            "person_names": [{"value": full_name, "exact_match": True, "exclude": False}],
+            "current_company_domains": [{"value": domain, "exact_match": True, "exclude": False}],
+        },
+        timeout=30,
+    )
+    if resp.is_error:
+        logger.error("FullEnrich search error %d: %s", resp.status_code, resp.text)
+        resp.raise_for_status()
+
+    data = resp.json()
+    people = data.get("people", [])
+
+    if not people:
+        logger.info("FullEnrich search: no results for %s @ %s", full_name, domain)
+        return None
+
+    person = people[0]
+    social = person.get("social_profiles", {})
+    li = social.get("linkedin", {})
+
+    result = {
+        "linkedin_url": li.get("url"),
+        "connection_count": li.get("connection_count"),
+    }
+    logger.info("FullEnrich search found: %s → %s", full_name, result["linkedin_url"])
+    return result

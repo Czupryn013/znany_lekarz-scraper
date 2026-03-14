@@ -339,3 +339,127 @@ async def extract_nip(
     except Exception as exc:
         logger.error("[nip] '%s' — LLM call failed: %s", clinic_name, exc)
         return None
+
+
+# ── Personal LinkedIn profile categorisation ─────────────────────────────
+
+PERSONAL_LINKEDIN_CATEGORIZE_SYSTEM_PROMPT = (
+    "You are an expert data researcher. Your task is to identify the LinkedIn Profile "
+    "of TARGET PERSON working at given medical clinic in Poland.\n\n"
+    "CATEGORIZATION RULES:\n"
+    "- YES:  Only if both name and company matches\n"
+    "- MAYBE: when no exact company match, but the name and gender matches. "
+    "But still medical company or role or education.\n"
+    "- NO: the person is unrelated to the TARGET company, different sector, "
+    "completely non fitting role (for example cashier or bricklayer). "
+    "Clearly different name or gender\n\n"
+    "Lean towards MAYBE if not sure. Use YES only if +90% sure, "
+    "only use NO if clearly non-fitting.\n"
+    "When lacking info, label as MAYBE (require human verification) "
+    "- only use NO when you can clearly say result DOESN'T fit\n\n"
+    "OUTPUT FORMAT - list of ALL input id's (just the number) with their status. example:\n"
+    "first_id: [STATUS]\n"
+    "....\n"
+    "last_id: [STATUS]\n"
+    "YOU CAN'T ADD ANY OTHER TEXT, CHARACTERS OR EXPLANATIONS, if no id's empty output"
+)
+
+
+def _build_personal_linkedin_prompt(
+    full_name: str,
+    company_names: list[str],
+    serp_results: list[SerpResult],
+) -> str:
+    """Build the user message for personal LinkedIn categorisation."""
+    results_str = "\n".join(
+        f"{i}: {r.title}: {r.description}"
+        for i, r in enumerate(serp_results)
+    )
+    companies_str = ", ".join(company_names) if company_names else "unknown"
+    return (
+        f"TARGET: {full_name} at companies: {companies_str}\n\n"
+        f"RESULTS:\n{results_str}"
+    )
+
+
+async def categorize_personal_linkedin_results(
+    full_name: str,
+    company_names: list[str],
+    serp_results: list[SerpResult],
+) -> list[tuple[int, str]]:
+    """Ask LLM to categorise each SERP result as yes/maybe/no for a personal LinkedIn match."""
+    if not serp_results:
+        return []
+
+    client = _get_client()
+    user_msg = _build_personal_linkedin_prompt(full_name, company_names, serp_results)
+
+    try:
+        resp = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": PERSONAL_LINKEDIN_CATEGORIZE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        answer = resp.choices[0].message.content.strip()
+        pairs = _parse_categorization(answer, len(serp_results))
+        logger.info("[personal-li] '%s' categorised: %s", full_name, pairs)
+        return pairs
+    except Exception as exc:
+        logger.error("[personal-li] categorisation failed for '%s': %s", full_name, exc)
+        return []
+
+
+# ── Personal LinkedIn profile validation ─────────────────────────────────
+
+PERSONAL_LINKEDIN_VALIDATE_SYSTEM_PROMPT = (
+    "Determine if this LinkedIn profile belongs to the target person "
+    "working at the given medical clinic(s) in Poland.\n\n"
+    "Consider: name match, company match, role relevance, location.\n\n"
+    "REJECT (answer NO) if the profile looks fake or fully empty:\n"
+    "- headline is '--', '-', empty, or generic placeholder\n"
+    "- AND the account has 0 followers or 0 connections\n\n"
+    "OUTPUT ONLY: YES or NO. No extra text allowed!"
+)
+
+
+async def validate_personal_linkedin_profile(
+    full_name: str,
+    company_names: list[str],
+    profile_data: dict,
+) -> bool:
+    """Ask LLM whether a scraped LinkedIn profile matches the target person."""
+    client = _get_client()
+    companies_str = ", ".join(company_names) if company_names else "unknown"
+    followers = profile_data.get('followersCount', profile_data.get('followers', ''))
+    connections = profile_data.get('connectionsCount', profile_data.get('connections', ''))
+    user_msg = (
+        f"TARGET: {full_name} at companies: {companies_str}\n\n"
+        f"PROFILE:\n"
+        f"- name: {profile_data.get('name', '') or profile_data.get('fullName', '')}\n"
+        f"- headline: {profile_data.get('headline', '') or profile_data.get('title', '')}\n"
+        f"- location: {profile_data.get('location', '')}\n"
+        f"- current company: {profile_data.get('currentCompany', '') or profile_data.get('company', '')}\n"
+        f"- followers: {followers}\n"
+        f"- connections: {connections}\n"
+        f"- summary: {str(profile_data.get('summary', '') or profile_data.get('description', ''))[:500]}"
+    )
+
+    try:
+        resp = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": PERSONAL_LINKEDIN_VALIDATE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        answer = resp.choices[0].message.content.strip().upper()
+        is_match = answer == "YES"
+        logger.info("[personal-li] validate '%s' → %s", full_name, answer)
+        return is_match
+    except Exception as exc:
+        logger.error("[personal-li] validation failed for '%s': %s", full_name, exc)
+        return False

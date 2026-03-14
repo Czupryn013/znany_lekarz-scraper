@@ -123,6 +123,7 @@ async def _run_single_serp(
 async def run_serp_search(
     keywords: list[str],
     semaphore: asyncio.Semaphore | None = None,
+    keywords_per_call: int | None = None,
 ) -> list[SerpResponse | None]:
     """Run SERP searches for all keywords, chunked and parallelised via Apify actors."""
     if not keywords:
@@ -131,16 +132,18 @@ async def run_serp_search(
     if semaphore is None:
         semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
 
-    # Chunk keywords into groups of SERP_KEYWORDS_PER_CALL
+    chunk_size = keywords_per_call or SERP_KEYWORDS_PER_CALL
+
+    # Chunk keywords into groups of chunk_size
     chunks: list[list[str]] = []
-    for i in range(0, len(keywords), SERP_KEYWORDS_PER_CALL):
-        chunks.append(keywords[i : i + SERP_KEYWORDS_PER_CALL])
+    for i in range(0, len(keywords), chunk_size):
+        chunks.append(keywords[i : i + chunk_size])
 
     logger.info(
         "SERP search: %d total keywords → %d chunks of ≤%d, concurrency=%d",
         len(keywords),
         len(chunks),
-        SERP_KEYWORDS_PER_CALL,
+        chunk_size,
         APIFY_CONCURRENCY,
     )
 

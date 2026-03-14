@@ -209,6 +209,9 @@ class Lead(Base):
     phone = Column(String(64), nullable=True)
     email = Column(String(256), nullable=True)
     linkedin_url = Column(String(512), nullable=True)
+    linkedin_maybe = Column(Text, nullable=True)  # comma-separated candidate profile URLs
+    linkedin_no = Column(Text, nullable=True)  # comma-separated rejected profile URLs
+    linkedin_searched_at = Column(DateTime, nullable=True)
     lead_source = Column(String(32), nullable=False)  # KRS, JDG, SC, LINKEDIN, EMPLOYEE
     phone_source = Column(String(32), nullable=True)  # PROSPEO, FULLENRICH, LUSHA, CEIDG
     enrichment_status = Column(String(32), nullable=False, default="PENDING")  # see EnrichmentStatus

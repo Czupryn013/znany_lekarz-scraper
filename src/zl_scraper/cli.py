@@ -4,7 +4,7 @@ import asyncio
 import csv
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -740,11 +740,13 @@ def sync_leads(
 def enrich_phones(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many fresh PENDING leads enter Prospeo"),
     step: Optional[str] = typer.Option(None, "--step", help="Run only one tier: prospeo, fullenrich, or lusha"),
+    retry_no_phone: bool = typer.Option(False, "--retry-no-phone", help="Re-run waterfall for LUSHA_DONE leads that still have no phone"),
+    retry_linkedin: bool = typer.Option(False, "--retry-linkedin", help="Re-run waterfall only for LUSHA_DONE leads that have linkedin_url but no phone"),
 ) -> None:
     """Run phone enrichment waterfall: Prospeo → FullEnrich → Lusha."""
     from zl_scraper.pipeline.phone_enrich.enrich_phones import run_enrich_phones
 
-    run_enrich_phones(limit=limit, step=step)
+    run_enrich_phones(limit=limit, step=step, retry_no_phone=retry_no_phone, retry_linkedin=retry_linkedin)
     console.print("[green]Phone enrichment complete.[/green]")
 
 
@@ -913,6 +915,190 @@ def review_linkedin(
         console.print(
             "\nUse [bold]--approve <ID>[/bold] or [bold]--reject <ID>[/bold] to resolve."
         )
+    finally:
+        session.close()
+
+
+# ── personal LinkedIn discovery ──────────────────────────────────────────
+
+
+@app.command(name="find-lead-linkedin")
+def find_lead_linkedin(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many leads to process per step"),
+    step: Optional[str] = typer.Option(None, "--step", help="Run only one step: serp, fe, or apify"),
+) -> None:
+    """Discover personal LinkedIn URLs for leads: SERP → FullEnrich → Apify waterfall."""
+    from zl_scraper.pipeline.personal_linkedin import run_lead_linkedin
+
+    stats = asyncio.run(run_lead_linkedin(limit=limit, step=step))
+
+    if stats:
+        step_labels = {"serp": "SERP", "fe": "FullEnrich", "apify": "Apify"}
+        table = Table(title="Personal LinkedIn Discovery Summary")
+        table.add_column("Step", style="cyan")
+        table.add_column("YES", style="green", justify="right")
+        table.add_column("MAYBE", style="yellow", justify="right")
+        table.add_column("NO", style="red", justify="right")
+
+        sum_yes = sum_maybe = sum_no = 0
+        for key in ("serp", "fe", "apify"):
+            if key in stats:
+                s = stats[key]
+                table.add_row(step_labels[key], str(s["yes"]), str(s["maybe"]), str(s["no"]))
+                sum_yes += s["yes"]
+                sum_maybe += s["maybe"]
+                sum_no += s["no"]
+
+        table.add_row("───", "───", "───", "───")
+        table.add_row("[bold]Total[/]", f"[bold]{sum_yes}[/]", f"[bold]{sum_maybe}[/]", f"[bold]{sum_no}[/]")
+        console.print(table)
+
+    console.print("[green]Personal LinkedIn discovery complete.[/green]")
+
+
+@app.command(name="review-lead-linkedin")
+def review_lead_linkedin() -> None:
+    """Interactively review linkedin_maybe URLs — one lead at a time, pick a number to approve."""
+    import subprocess
+    from urllib.parse import quote, unquote
+
+    BRAVE_PATH = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+
+    def _open_urls_in_brave(urls: list[str]) -> None:
+        """Open all URLs as new tabs in a single Brave window."""
+        try:
+            subprocess.Popen([BRAVE_PATH, *urls])
+        except FileNotFoundError:
+            console.print("  [red]Brave not found at expected path — skipping auto-open[/red]")
+
+    def _normalize_url(url: str) -> str:
+        return quote(unquote(url.strip().rstrip("/").lower()), safe="/:@!$&'()*+,;=-._~?#[]")
+
+    def _dedup_csv(csv_val: str | None) -> list[str]:
+        if not csv_val:
+            return []
+        seen: set[str] = set()
+        result: list[str] = []
+        for u in csv_val.split(","):
+            norm = _normalize_url(u)
+            if norm and norm not in seen:
+                seen.add(norm)
+                result.append(norm)
+        return result
+
+    session = SessionLocal()
+    try:
+        leads = (
+            session.query(Lead)
+            .filter(
+                Lead.linkedin_maybe.isnot(None),
+                Lead.linkedin_maybe != "",
+                Lead.linkedin_url.is_(None),
+            )
+            .order_by(Lead.id)
+            .all()
+        )
+
+        if not leads:
+            console.print("[green]No leads with linkedin_maybe pending review.[/green]")
+            return
+
+        total = len(leads)
+        console.print(f"\n{total} leads with MAYBE URLs to review.")
+        console.print("[dim]Enter number to approve that URL  |  0 = reject all  |  Enter = skip  |  q = quit[/dim]\n")
+
+        approved = 0
+        rejected = 0
+        skipped = 0
+
+        company_cache: dict[int, list[str]] = {}
+
+        def _get_companies(lead_id: int) -> list[str]:
+            if lead_id not in company_cache:
+                rows = (
+                    session.query(Clinic.name, Clinic.legal_name, Clinic.website_domain)
+                    .join(lead_clinic_roles, Clinic.id == lead_clinic_roles.c.clinic_id)
+                    .filter(lead_clinic_roles.c.lead_id == lead_id)
+                    .all()
+                )
+                company_cache[lead_id] = [
+                    f"{r.legal_name or r.name}{f' ({r.website_domain})' if r.website_domain else ''}"
+                    for r in rows
+                ]
+            return company_cache[lead_id]
+
+        for i, lead in enumerate(leads, 1):
+            urls = _dedup_csv(lead.linkedin_maybe)
+            if not urls:
+                continue
+
+            companies = _get_companies(lead.id)
+            age = _age_from_pesel(lead.pesel)
+            console.print(f"{'─' * 60}")
+            age_str = f"  Age: [magenta]{age}[/magenta]" if age is not None else ""
+            console.print(f"  [dim][{i}/{total}][/dim]  Lead #{lead.id}  [cyan]{lead.full_name}[/cyan]{age_str}")
+            if lead.linkedin_url:
+                console.print(f"  Current LinkedIn: [green]{lead.linkedin_url}[/green]")
+            for comp in companies:
+                console.print(f"  Company: [blue]{comp}[/blue]")
+            console.print()
+            for idx, url in enumerate(urls, 1):
+                console.print(f"  [yellow]{idx})[/yellow] {url}")
+
+            open_list = ([lead.linkedin_url] if lead.linkedin_url else []) + urls
+            _open_urls_in_brave(open_list)
+
+            while True:
+                raw = input("\n  [1-N / 0 / Enter / q]: ").strip().lower()
+
+                if raw == "q":
+                    session.commit()
+                    console.print(f"\nQuit. Approved {approved}, rejected {rejected}, skipped {skipped}.")
+                    return
+
+                if raw == "":
+                    skipped += 1
+                    break
+
+                if raw == "0":
+                    # Reject all maybe URLs for this lead
+                    no_list = _dedup_csv(lead.linkedin_no)
+                    for u in urls:
+                        norm = _normalize_url(u)
+                        if norm not in no_list:
+                            no_list.append(norm)
+                    lead.linkedin_no = ",".join(no_list) if no_list else None
+                    lead.linkedin_maybe = None
+                    lead.updated_at = datetime.utcnow()
+                    session.commit()
+                    rejected += len(urls)
+                    console.print(f"  [red]✗ Rejected all {len(urls)} URLs[/red]")
+                    break
+
+                if raw.isdigit():
+                    choice = int(raw)
+                    if 1 <= choice <= len(urls):
+                        chosen_url = urls[choice - 1]
+                        norm = _normalize_url(chosen_url)
+                        lead.linkedin_url = norm
+                        # Reject the rest, clear maybe
+                        no_list = _dedup_csv(lead.linkedin_no)
+                        for u in urls:
+                            u_norm = _normalize_url(u)
+                            if u_norm != norm and u_norm not in no_list:
+                                no_list.append(u_norm)
+                        lead.linkedin_no = ",".join(no_list) if no_list else None
+                        lead.linkedin_maybe = None
+                        lead.updated_at = datetime.utcnow()
+                        session.commit()
+                        approved += 1
+                        rejected += len(urls) - 1
+                        console.print(f"  [green]✓ Approved #{choice}[/green]: {norm}")
+                        break
+
+                console.print(f"  [dim]Invalid input. Enter 1-{len(urls)}, 0, Enter, or q[/dim]")
+
+        console.print(f"\nDone. Approved {approved}, rejected {rejected}, skipped {skipped}.")
     finally:
         session.close()
 

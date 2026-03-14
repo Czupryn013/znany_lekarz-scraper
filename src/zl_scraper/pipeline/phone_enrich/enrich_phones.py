@@ -77,15 +77,16 @@ def _run_prospeo(
     session: Session,
     limit: Optional[int] = None,
     allowed_lead_ids: Optional[set[int]] = None,
-) -> int:
-    """Enrich PENDING leads via Prospeo. Returns number processed."""
+) -> tuple[int, int]:
+    """Enrich PENDING leads via Prospeo. Returns (processed, phones_found)."""
     leads = _get_leads_by_status(session, "PENDING", limit=limit, allowed_lead_ids=allowed_lead_ids)
     if not leads:
         logger.info("Prospeo: no PENDING leads to process")
-        return 0
+        return 0, 0
 
     logger.info("Prospeo: %d PENDING leads to process", len(leads))
     total_processed = 0
+    total_phones = 0
 
     for i in range(0, len(leads), PROSPEO_BATCH_SIZE):
         batch = leads[i : i + PROSPEO_BATCH_SIZE]
@@ -136,12 +137,13 @@ def _run_prospeo(
         session.commit()
         total_processed += len(batch)
         found_phones = sum(1 for lid in matched_ids if lead_map[lid].phone)
+        total_phones += found_phones
         logger.info(
             "Prospeo batch: %d/%d matched, %d phones found",
             len(matched_ids), len(batch), found_phones,
         )
 
-    return total_processed
+    return total_processed, total_phones
 
 
 # ── FullEnrich tier ──────────────────────────────────────────────────────
@@ -151,8 +153,8 @@ def _run_fullenrich(
     session: Session,
     limit: Optional[int] = None,
     allowed_lead_ids: Optional[set[int]] = None,
-) -> int:
-    """Enrich PROSPEO_DONE leads (without phone) via FullEnrich. Returns number processed."""
+) -> tuple[int, int]:
+    """Enrich PROSPEO_DONE leads (without phone) via FullEnrich. Returns (processed, phones_found)."""
     leads = (
         session.query(Lead)
         .filter(
@@ -164,7 +166,7 @@ def _run_fullenrich(
     if allowed_lead_ids is not None:
         if not allowed_lead_ids:
             logger.info("FullEnrich: no cohort leads allowed")
-            return 0
+            return 0, 0
         leads = leads.filter(Lead.id.in_(allowed_lead_ids))
     if limit is not None:
         leads = leads.limit(limit)
@@ -172,10 +174,11 @@ def _run_fullenrich(
 
     if not leads:
         logger.info("FullEnrich: no PROSPEO_DONE leads without phone")
-        return 0
+        return 0, 0
 
     logger.info("FullEnrich: %d leads to process", len(leads))
     total_processed = 0
+    total_phones = 0
 
     for i in range(0, len(leads), FULLENRICH_BATCH_SIZE):
         batch = leads[i : i + FULLENRICH_BATCH_SIZE]
@@ -231,12 +234,13 @@ def _run_fullenrich(
 
         session.commit()
         total_processed += len(batch)
+        total_phones += found_phones
         logger.info(
             "FullEnrich batch: %d/%d phones found",
             found_phones, len(batch),
         )
 
-    return total_processed
+    return total_processed, total_phones
 
 
 # ── Lusha tier ───────────────────────────────────────────────────────────
@@ -246,8 +250,8 @@ def _run_lusha(
     session: Session,
     limit: Optional[int] = None,
     allowed_lead_ids: Optional[set[int]] = None,
-) -> int:
-    """Enrich FE_DONE leads (without phone) via Lusha. Returns number processed."""
+) -> tuple[int, int]:
+    """Enrich FE_DONE leads (without phone) via Lusha. Returns (processed, phones_found)."""
     leads = (
         session.query(Lead)
         .filter(
@@ -259,7 +263,7 @@ def _run_lusha(
     if allowed_lead_ids is not None:
         if not allowed_lead_ids:
             logger.info("Lusha: no cohort leads allowed")
-            return 0
+            return 0, 0
         leads = leads.filter(Lead.id.in_(allowed_lead_ids))
     if limit is not None:
         leads = leads.limit(limit)
@@ -267,10 +271,11 @@ def _run_lusha(
 
     if not leads:
         logger.info("Lusha: no FE_DONE leads without phone")
-        return 0
+        return 0, 0
 
     logger.info("Lusha: %d leads to process", len(leads))
     total_processed = 0
+    total_phones = 0
 
     for i in range(0, len(leads), LUSHA_BATCH_SIZE):
         batch = leads[i : i + LUSHA_BATCH_SIZE]
@@ -323,12 +328,13 @@ def _run_lusha(
 
         session.commit()
         total_processed += len(batch)
+        total_phones += found_phones
         logger.info(
             "Lusha batch: %d/%d phones found",
             found_phones, len(batch),
         )
 
-    return total_processed
+    return total_processed, total_phones
 
 
 # ── Leads that already got a phone at an earlier step ────────────────────
@@ -423,6 +429,8 @@ def _build_run_cohort(session: Session, limit: Optional[int], step: Optional[str
 def run_enrich_phones(
     limit: Optional[int] = None,
     step: Optional[str] = None,
+    retry_no_phone: bool = False,
+    retry_linkedin: bool = False,
 ) -> None:
     """Run the phone enrichment waterfall: Prospeo → FullEnrich → Lusha.
 
@@ -433,14 +441,64 @@ def run_enrich_phones(
         limit: Global cap on unique leads in this CLI run. A lead can pass
                multiple providers, but counts once toward --limit.
         step: Run only a specific tier: 'prospeo', 'fullenrich', or 'lusha'.
+        retry_no_phone: Reset LUSHA_DONE leads that still have no phone back
+                        to PENDING so they re-enter the waterfall.
+        retry_linkedin: Reset leads that have no phone but DO have
+                        a linkedin_url (any status), then re-run only those
+                        through the full waterfall.
     """
     session = SessionLocal()
     try:
-        logger.info("Starting enrich-phones (limit=%s, step=%s)", limit, step)
+        logger.info("Starting enrich-phones (limit=%s, step=%s, retry_no_phone=%s, retry_linkedin=%s)", limit, step, retry_no_phone, retry_linkedin)
 
         if step and step not in ("prospeo", "fullenrich", "lusha"):
             raise ValueError(f"Unknown step: {step}. Must be prospeo, fullenrich, or lusha.")
+
+        # ── Retry: reset LUSHA_DONE leads without phone back to PENDING ──
+        if retry_no_phone:
+            reset_count = (
+                session.query(Lead)
+                .filter(
+                    Lead.enrichment_status == "LUSHA_DONE",
+                    Lead.phone.is_(None),
+                )
+                .update({Lead.enrichment_status: "PENDING", Lead.updated_at: datetime.utcnow()})
+            )
+            session.commit()
+            logger.info("retry_no_phone: reset %d LUSHA_DONE leads (no phone) → PENDING", reset_count)
+
+        # ── Retry-linkedin: reset phone-less leads that have a linkedin_url ──
+        retry_linkedin_cohort: Optional[set[int]] = None
+        if retry_linkedin:
+            retry_leads = (
+                session.query(Lead.id)
+                .filter(
+                    Lead.phone.is_(None),
+                    Lead.linkedin_url.isnot(None),
+                )
+                .all()
+            )
+            retry_linkedin_cohort = {row[0] for row in retry_leads}
+            if not retry_linkedin_cohort:
+                logger.info("retry_linkedin: no leads with linkedin_url and no phone")
+                return
+
+            session.query(Lead).filter(Lead.id.in_(retry_linkedin_cohort)).update(
+                {Lead.enrichment_status: "PENDING", Lead.updated_at: datetime.utcnow()},
+            )
+            session.commit()
+            logger.info(
+                "retry_linkedin: reset %d leads (has linkedin, no phone) → PENDING",
+                len(retry_linkedin_cohort),
+            )
+
         run_cohort = _build_run_cohort(session, limit=limit, step=step)
+        # If retry_linkedin is active, constrain cohort to only those leads
+        if retry_linkedin_cohort is not None:
+            if run_cohort is not None:
+                run_cohort = run_cohort & retry_linkedin_cohort
+            else:
+                run_cohort = retry_linkedin_cohort
         if run_cohort is not None:
             logger.info("Run cohort selected: %d unique leads", len(run_cohort))
 
@@ -450,24 +508,34 @@ def run_enrich_phones(
 
         # ── Resume mid-work leads first ──────────────────────────────
 
+        # Track phones found per source during this run
+        run_phones = {"PROSPEO": 0, "FULLENRICH": 0, "LUSHA": 0}
+        run_processed = 0
+
         if not step or step == "fullenrich":
             # Advance PROSPEO_DONE leads that already have phone → LUSHA_DONE
             _advance_leads_with_phone(session, "PROSPEO_DONE", "LUSHA_DONE")
-            fe_count = _run_fullenrich(session, allowed_lead_ids=run_cohort)
+            fe_count, fe_phones = _run_fullenrich(session, allowed_lead_ids=run_cohort)
+            run_processed += fe_count
+            run_phones["FULLENRICH"] += fe_phones
             if fe_count:
                 logger.info("FullEnrich (resume): processed %d leads", fe_count)
 
         if not step or step == "lusha":
             # Advance FE_DONE leads that already have phone → LUSHA_DONE
             _advance_leads_with_phone(session, "FE_DONE", "LUSHA_DONE")
-            lusha_count = _run_lusha(session, allowed_lead_ids=run_cohort)
+            lusha_count, lusha_phones = _run_lusha(session, allowed_lead_ids=run_cohort)
+            run_processed += lusha_count
+            run_phones["LUSHA"] += lusha_phones
             if lusha_count:
                 logger.info("Lusha (resume): processed %d leads", lusha_count)
 
         # ── Fresh intake via Prospeo ─────────────────────────────────
 
         if not step or step == "prospeo":
-            prospeo_count = _run_prospeo(session, allowed_lead_ids=run_cohort)
+            prospeo_count, prospeo_phones = _run_prospeo(session, allowed_lead_ids=run_cohort)
+            run_processed += prospeo_count
+            run_phones["PROSPEO"] += prospeo_phones
             if prospeo_count:
                 logger.info("Prospeo: processed %d fresh leads", prospeo_count)
 
@@ -475,22 +543,35 @@ def run_enrich_phones(
 
         if not step:
             _advance_leads_with_phone(session, "PROSPEO_DONE", "LUSHA_DONE")
-            fe_count_2 = _run_fullenrich(session, allowed_lead_ids=run_cohort)
+            fe_count_2, fe_phones_2 = _run_fullenrich(session, allowed_lead_ids=run_cohort)
+            run_processed += fe_count_2
+            run_phones["FULLENRICH"] += fe_phones_2
             if fe_count_2:
                 logger.info("FullEnrich (waterfall): processed %d leads", fe_count_2)
 
             _advance_leads_with_phone(session, "FE_DONE", "LUSHA_DONE")
-            lusha_count_2 = _run_lusha(session, allowed_lead_ids=run_cohort)
+            lusha_count_2, lusha_phones_2 = _run_lusha(session, allowed_lead_ids=run_cohort)
+            run_processed += lusha_count_2
+            run_phones["LUSHA"] += lusha_phones_2
             if lusha_count_2:
                 logger.info("Lusha (waterfall): processed %d leads", lusha_count_2)
 
         # ── Summary ──────────────────────────────────────────────────
 
-        total_phone = session.query(Lead).filter(Lead.phone.isnot(None)).count()
-        total_leads = session.query(Lead).count()
+        total_run_phones = sum(run_phones.values())
         logger.info(
-            "Enrichment complete. %d/%d leads have a phone number.",
-            total_phone, total_leads,
+            "Enrichment complete. Processed %d leads, found %d phones this run:\n"
+            "  %-14s %s\n"
+            "  %-14s %s\n"
+            "  %-14s %s\n"
+            "  %-14s %s\n"
+            "  %-14s %s",
+            run_processed, total_run_phones,
+            "Source", "Phones",
+            "-" * 14, "-" * 6,
+            "PROSPEO", run_phones["PROSPEO"],
+            "FULLENRICH", run_phones["FULLENRICH"],
+            "LUSHA", run_phones["LUSHA"],
         )
 
     except Exception:

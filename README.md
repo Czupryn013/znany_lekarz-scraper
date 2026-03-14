@@ -92,6 +92,56 @@ python src/zl_scraper/cli.py filter-worked --dry-run
 python src/zl_scraper/cli.py filter-worked --list
 ```
 
+### Find personal LinkedIn profiles for leads
+```bash
+python src/zl_scraper/cli.py find-lead-linkedin
+```
+Runs a three-step waterfall: **SERP → FullEnrich → Apify** to discover personal LinkedIn URLs for leads (board members / prokura).
+
+Options:
+- `--limit N` — Cap how many leads to process per step
+- `--step serp|fe|apify` — Run only a single step instead of the full waterfall
+
+The SERP step uses LLM-based categorisation to classify results as YES / MAYBE / NO. The first YES is saved as `linkedin_url`, MAYBE URLs go to `linkedin_maybe` for manual review. The FE step uses FullEnrich People Search. The Apify step does a two-pass LinkedIn profile search (industry-filtered, then broad) with LLM validation.
+
+Examples:
+```bash
+# Full waterfall, 50 leads per step
+python src/zl_scraper/cli.py find-lead-linkedin --limit 50
+
+# Only run the SERP step
+python src/zl_scraper/cli.py find-lead-linkedin --step serp
+
+# Only run Apify for leads still without a match
+python src/zl_scraper/cli.py find-lead-linkedin --step apify --limit 20
+```
+
+### Review personal LinkedIn MAYBE candidates
+```bash
+python src/zl_scraper/cli.py review-lead-linkedin
+```
+Interactive Tinder-style review — walks through each MAYBE URL one by one, showing lead name, companies, and the candidate URL. Press `y` to approve (sets as `linkedin_url`), `n` to reject (moves to `linkedin_no`), `s` to skip, or `q` to quit. Progress is committed after each action.
+
+### Phone enrichment
+```bash
+python src/zl_scraper/cli.py enrich-phones
+```
+Runs the phone enrichment waterfall: **Prospeo → FullEnrich → Lusha**.
+
+Options:
+- `--limit N` — Cap how many fresh PENDING leads enter Prospeo
+- `--step prospeo|fullenrich|lusha` — Run only one tier
+- `--retry-no-phone` — Reset LUSHA_DONE leads that still have no phone back to PENDING and re-run the waterfall
+
+Examples:
+```bash
+# Full waterfall
+python src/zl_scraper/cli.py enrich-phones --limit 100
+
+# Re-run for leads that completed the waterfall but still have no phone
+python src/zl_scraper/cli.py enrich-phones --retry-no-phone
+```
+
 ## Proxy Waterfall
 
 The scraper uses a waterfall proxy strategy, trying tiers from cheapest to most expensive:
