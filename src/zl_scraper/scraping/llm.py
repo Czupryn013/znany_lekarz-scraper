@@ -418,9 +418,6 @@ PERSONAL_LINKEDIN_VALIDATE_SYSTEM_PROMPT = (
     "Determine if this LinkedIn profile belongs to the target person "
     "working at the given medical clinic(s) in Poland.\n\n"
     "Consider: name match, company match, role relevance, location.\n\n"
-    "REJECT (answer NO) if the profile looks fake or fully empty:\n"
-    "- headline is '--', '-', empty, or generic placeholder\n"
-    "- AND the account has 0 followers or 0 connections\n\n"
     "OUTPUT ONLY: YES or NO. No extra text allowed!"
 )
 

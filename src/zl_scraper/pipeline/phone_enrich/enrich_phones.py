@@ -19,6 +19,9 @@ PROSPEO_BATCH_SIZE = 49
 FULLENRICH_BATCH_SIZE = 50
 LUSHA_BATCH_SIZE = 50
 
+# Marker status for leads already retried with linkedin_url but still no phone.
+LINKEDIN_RETRY_DONE_STATUS = "LUSHA_DONE_LI"
+
 
 # ── Query helpers ────────────────────────────────────────────────────────
 
@@ -250,6 +253,7 @@ def _run_lusha(
     session: Session,
     limit: Optional[int] = None,
     allowed_lead_ids: Optional[set[int]] = None,
+    done_status: str = "LUSHA_DONE",
 ) -> tuple[int, int]:
     """Enrich FE_DONE leads (without phone) via Lusha. Returns (processed, phones_found)."""
     leads = (
@@ -321,9 +325,9 @@ def _run_lusha(
                 lead.phone_source = "LUSHA"
                 found_phones += 1
 
-        # Advance all to LUSHA_DONE
+        # Advance all to terminal status for this run context.
         for lead in batch:
-            lead.enrichment_status = "LUSHA_DONE"
+            lead.enrichment_status = done_status
             lead.updated_at = datetime.utcnow()
 
         session.commit()
@@ -475,12 +479,15 @@ def run_enrich_phones(
                 .filter(
                     Lead.phone.is_(None),
                     Lead.linkedin_url.isnot(None),
+                    Lead.enrichment_status != LINKEDIN_RETRY_DONE_STATUS,
                 )
                 .all()
             )
             retry_linkedin_cohort = {row[0] for row in retry_leads}
             if not retry_linkedin_cohort:
-                logger.info("retry_linkedin: no leads with linkedin_url and no phone")
+                logger.info(
+                    "retry_linkedin: no eligible leads (all linkedin no-phone leads already retried or no candidates)"
+                )
                 return
 
             session.query(Lead).filter(Lead.id.in_(retry_linkedin_cohort)).update(
@@ -488,7 +495,7 @@ def run_enrich_phones(
             )
             session.commit()
             logger.info(
-                "retry_linkedin: reset %d leads (has linkedin, no phone) → PENDING",
+                "retry_linkedin: reset %d leads (has linkedin, no phone, not retried yet) → PENDING",
                 len(retry_linkedin_cohort),
             )
 
@@ -524,7 +531,12 @@ def run_enrich_phones(
         if not step or step == "lusha":
             # Advance FE_DONE leads that already have phone → LUSHA_DONE
             _advance_leads_with_phone(session, "FE_DONE", "LUSHA_DONE")
-            lusha_count, lusha_phones = _run_lusha(session, allowed_lead_ids=run_cohort)
+            lusha_done_status = LINKEDIN_RETRY_DONE_STATUS if retry_linkedin else "LUSHA_DONE"
+            lusha_count, lusha_phones = _run_lusha(
+                session,
+                allowed_lead_ids=run_cohort,
+                done_status=lusha_done_status,
+            )
             run_processed += lusha_count
             run_phones["LUSHA"] += lusha_phones
             if lusha_count:
@@ -550,7 +562,12 @@ def run_enrich_phones(
                 logger.info("FullEnrich (waterfall): processed %d leads", fe_count_2)
 
             _advance_leads_with_phone(session, "FE_DONE", "LUSHA_DONE")
-            lusha_count_2, lusha_phones_2 = _run_lusha(session, allowed_lead_ids=run_cohort)
+            lusha_done_status = LINKEDIN_RETRY_DONE_STATUS if retry_linkedin else "LUSHA_DONE"
+            lusha_count_2, lusha_phones_2 = _run_lusha(
+                session,
+                allowed_lead_ids=run_cohort,
+                done_status=lusha_done_status,
+            )
             run_processed += lusha_count_2
             run_phones["LUSHA"] += lusha_phones_2
             if lusha_count_2:

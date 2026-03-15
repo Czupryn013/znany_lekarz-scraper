@@ -120,7 +120,52 @@ python src/zl_scraper/cli.py find-lead-linkedin --step apify --limit 20
 ```bash
 python src/zl_scraper/cli.py review-lead-linkedin
 ```
-Interactive Tinder-style review — walks through each MAYBE URL one by one, showing lead name, companies, and the candidate URL. Press `y` to approve (sets as `linkedin_url`), `n` to reject (moves to `linkedin_no`), `s` to skip, or `q` to quit. Progress is committed after each action.
+Interactive terminal review for legacy MAYBE URLs (`linkedin_maybe`) — one lead at a time.
+
+Inputs:
+- `1..N` — approve selected URL (sets `linkedin_url`)
+- `0` — reject all shown URLs (moves them to `linkedin_no`)
+- `Enter` — skip current lead
+- `q` — quit
+
+### Review full LinkedIn profiles locally (recommended)
+Use the local, no-server HTML viewer for compact Tinder-style review of full Apify profiles (photo, name, headline, experience, education, skills, etc.).
+
+1. Run Apify profile search (this now stores full profiles in `linkedin_profiles`):
+```bash
+python src/zl_scraper/cli.py find-lead-linkedin --step apify --limit 50
+```
+
+2. Start interactive viewer loop (exports HTML + auto-opens in Brave):
+```bash
+python src/zl_scraper/cli.py export-viewer --output linkedin_viewer.html
+```
+
+Optional:
+```bash
+python src/zl_scraper/cli.py export-viewer --output C:/tmp/li_viewer.html --brave-path "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+```
+
+Inside the loop prompt, type:
+- `delete` to remove the exported HTML and exit the command
+- `linkedin_decisions.json` (or any JSON filename/path) to import decisions
+- `quit` to exit
+
+3. In browser, review profiles:
+- Approve / reject on each profile card
+- `Ctrl+Z` undo
+- Progress is persisted in browser localStorage
+- Click `Export` to download `linkedin_decisions.json`
+
+4. Import decisions back to DB (either from the loop prompt or manually):
+```bash
+python src/zl_scraper/cli.py import-reviews --file linkedin_decisions.json
+```
+
+Notes:
+- `APPROVED` profile sets `leads.linkedin_url`
+- `REJECTED` profile is appended to `leads.linkedin_no`
+- Other pending profiles for an approved lead are auto-rejected on import
 
 ### Phone enrichment
 ```bash
@@ -131,7 +176,8 @@ Runs the phone enrichment waterfall: **Prospeo → FullEnrich → Lusha**.
 Options:
 - `--limit N` — Cap how many fresh PENDING leads enter Prospeo
 - `--step prospeo|fullenrich|lusha` — Run only one tier
-- `--retry-no-phone` — Reset LUSHA_DONE leads that still have no phone back to PENDING and re-run the waterfall
+- `--retry-no-phone` — Re-run waterfall for LUSHA_DONE leads that still have no phone
+- `--retry-linkedin` — Re-run waterfall for leads that have a `linkedin_url` but no phone and were not already retried
 
 Examples:
 ```bash
@@ -140,6 +186,9 @@ python src/zl_scraper/cli.py enrich-phones --limit 100
 
 # Re-run for leads that completed the waterfall but still have no phone
 python src/zl_scraper/cli.py enrich-phones --retry-no-phone
+
+# Re-run for leads with a LinkedIn URL but no phone
+python src/zl_scraper/cli.py enrich-phones --retry-linkedin
 ```
 
 ## Proxy Waterfall

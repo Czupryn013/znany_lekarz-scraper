@@ -26,6 +26,7 @@ async def search_profiles_by_name(
     industry_ids: list[str] | None = None,
     max_items: int = 10,
     scraper_mode: str = "Full",
+    client: ApifyClientAsync | None = None,
 ) -> list[dict]:
     """Search LinkedIn profiles by name via Apify actor.
 
@@ -45,7 +46,7 @@ async def search_profiles_by_name(
     if industry_ids:
         run_input["industryIds"] = industry_ids
 
-    client = ApifyClientAsync(token=APIFY_API_TOKEN)
+    _client = client or ApifyClientAsync(token=APIFY_API_TOKEN)
     try:
         logger.info(
             "Searching LinkedIn profiles: %s %s (industries=%s, max=%d)",
@@ -54,7 +55,7 @@ async def search_profiles_by_name(
             max_items,
         )
 
-        run = await client.actor(PROFILE_SEARCH_ACTOR_ID).call(
+        run = await _client.actor(PROFILE_SEARCH_ACTOR_ID).call(
             run_input=run_input,
             timeout_secs=APIFY_ACTOR_TIMEOUT_SECS,
         )
@@ -69,7 +70,7 @@ async def search_profiles_by_name(
             return []
 
         items: list[dict] = []
-        async for item in client.dataset(dataset_id).iterate_items():
+        async for item in _client.dataset(dataset_id).iterate_items():
             items.append(item)
 
         logger.info(

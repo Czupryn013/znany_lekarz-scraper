@@ -1,12 +1,11 @@
 """Apify-based personal LinkedIn profile search (two-pass: industry-filtered → broad)."""
 
 import asyncio
-from datetime import datetime
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from zl_scraper.config import APIFY_CONCURRENCY
+from apify_client import ApifyClientAsync
+
 from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic, Lead, lead_clinic_roles
 from zl_scraper.scraping.linkedin_profile_search import (
@@ -18,49 +17,14 @@ from zl_scraper.scraping.llm import (
     validate_personal_linkedin_profile,
 )
 from zl_scraper.pipeline.personal_linkedin.serp import (
-    MAX_AGE,
-    _age_from_pesel,
-    _dedup_urls,
     _get_lead_company_names,
     _merge_csv_urls,
     _normalize_linkedin_url,
 )
+from zl_scraper.pipeline.personal_linkedin.save_profiles import save_profiles
 from zl_scraper.utils.logging import get_logger
 
 logger = get_logger("personal_linkedin.apify")
-
-APIFY_LEAD_CONCURRENCY = min(APIFY_CONCURRENCY, 10)
-
-
-# ── Query ────────────────────────────────────────────────────────────────
-
-
-def _get_leads_for_apify(
-    session: Session,
-    limit: Optional[int] = None,
-) -> list[Lead]:
-    """Get leads still without linkedin_url, not yet fully searched, with PESEL and age ≤ 75."""
-    leads = (
-        session.query(Lead)
-        .filter(
-            Lead.linkedin_url.is_(None),
-            Lead.pesel.isnot(None),
-            Lead.linkedin_searched_at.is_(None),
-        )
-        .order_by(Lead.id)
-        .all()
-    )
-
-    filtered = []
-    for lead in leads:
-        age = _age_from_pesel(lead.pesel)
-        if age is not None and age <= MAX_AGE:
-            filtered.append(lead)
-
-    if limit is not None:
-        filtered = filtered[:limit]
-
-    return filtered
 
 
 def _split_name(full_name: str) -> tuple[str, str]:
@@ -102,6 +66,7 @@ async def _validate_profiles(
     yes_urls: list[str] = []
     maybe_urls: list[str] = []
     no_urls: list[str] = []
+    verdicts_map: dict[str, str] = {}
 
     for idx, status in categorized:
         if idx >= len(serp_results):
@@ -111,6 +76,7 @@ async def _validate_profiles(
             continue
         label = status.upper()
         logger.info("  LLM %s: %s", label, url)
+        verdicts_map[_normalize_linkedin_url(url)] = label
         if status == "yes":
             yes_urls.append(url)
         elif status == "maybe":
@@ -130,6 +96,7 @@ async def _validate_profiles(
             else:
                 logger.info("  LLM validate NO (demoted to MAYBE): %s", url)
                 maybe_urls.append(url)
+                verdicts_map[_normalize_linkedin_url(url)] = "MAYBE"
         else:
             confirmed_yes.append(url)
 
@@ -137,6 +104,7 @@ async def _validate_profiles(
         "linkedin_yes": confirmed_yes[0] if confirmed_yes else None,
         "linkedin_maybe": maybe_urls + confirmed_yes[1:],
         "linkedin_no": no_urls,
+        "verdicts": verdicts_map,
     }
 
 
@@ -147,6 +115,7 @@ async def _search_and_validate_one(
     session: Session,
     lead: Lead,
     progress: str = "",
+    client: ApifyClientAsync | None = None,
 ) -> None:
     """Run two-pass Apify search for a single lead and save results."""
     first_name, last_name = _split_name(lead.full_name)
@@ -161,9 +130,13 @@ async def _search_and_validate_one(
         first_name, last_name,
         industry_ids=HEALTHCARE_INDUSTRY_IDS,
         max_items=10,
+        client=client,
     )
 
     result_1 = await _validate_profiles(lead.full_name, company_names, profiles_1)
+
+    # Persist pass-1 profiles
+    save_profiles(session, lead.id, profiles_1, result_1.get("verdicts", {}), "APIFY_PASS1")
 
     # Build set of already-rejected URLs to avoid re-adding them
     existing_no = set(_normalize_linkedin_url(u) for u in (lead.linkedin_no or "").split(",") if u.strip())
@@ -190,9 +163,13 @@ async def _search_and_validate_one(
         first_name, last_name,
         industry_ids=None,
         max_items=5,
+        client=client,
     )
 
     result_2 = await _validate_profiles(lead.full_name, company_names, profiles_2)
+
+    # Persist pass-2 profiles
+    save_profiles(session, lead.id, profiles_2, result_2.get("verdicts", {}), "APIFY_PASS2")
 
     # Merge results from both passes
     all_maybe = (result_1.get("linkedin_maybe", []) or []) + (result_2.get("linkedin_maybe", []) or [])
@@ -220,91 +197,50 @@ _counter_lock = asyncio.Lock()
 _counter = 0
 
 
-async def _process_one_lead(
-    lead_id: int,
-    semaphore: asyncio.Semaphore,
-    total: int,
-) -> str:
-    """Search and validate one lead in its own DB session. Returns 'yes', 'maybe', or 'no'."""
-    global _counter
-    async with semaphore:
-        async with _counter_lock:
-            _counter += 1
-            current = _counter
-        progress = f"[{current}/{total}] "
-
-        session = SessionLocal()
-        try:
-            lead = session.query(Lead).get(lead_id)
-            if lead is None:
-                return "no"
-
-            old_maybe = lead.linkedin_maybe
-            await _search_and_validate_one(session, lead, progress)
-            session.commit()
-
-            if lead.linkedin_url:
-                return "yes"
-            elif lead.linkedin_maybe and lead.linkedin_maybe != old_maybe:
-                return "maybe"
-            return "no"
-        except Exception:
-            session.rollback()
-            logger.exception(
-                "Apify search failed for lead #%d (%s)",
-                lead_id, getattr(lead, "full_name", "?"),
-            )
-            return "no"
-        finally:
-            session.close()
-
-
-async def run_apify_search_step(limit: Optional[int] = None) -> dict:
-    """Find LinkedIn profiles for leads via Apify two-pass profile search.
-
-    Returns dict with keys: yes, maybe, no.
-    """
-    logger.info("Starting personal LinkedIn Apify search (limit=%s)", limit)
-
+async def run_apify_batch(lead_ids: list[int], client: ApifyClientAsync | None = None) -> dict:
+    """Run Apify two-pass search for a batch of leads (by ID). Sequential, shared client."""
     session = SessionLocal()
     try:
-        leads = _get_leads_for_apify(session, limit)
+        leads = session.query(Lead).filter(Lead.id.in_(lead_ids)).order_by(Lead.id).all()
+        # Only leads still without linkedin_url
+        leads = [l for l in leads if l.linkedin_url is None]
 
         if not leads:
-            logger.info("No leads need Apify LinkedIn search")
-            return {"yes": 0, "maybe": 0, "no": 0}
+            return {"yes": 0, "maybe": 0, "no": 0, "failed_ids": set()}
 
-        lead_ids = [lead.id for lead in leads]
+        logger.info("Apify batch: %d leads", len(leads))
+
+        found = 0
+        maybe_count = 0
+        not_found = 0
+        failed_ids: set[int] = set()
+
+        for i, lead in enumerate(leads, 1):
+            progress = f"[{i}/{len(leads)}] "
+            try:
+                old_maybe = lead.linkedin_maybe
+                await _search_and_validate_one(session, lead, progress, client=client)
+                session.commit()
+
+                if lead.linkedin_url:
+                    found += 1
+                elif lead.linkedin_maybe and lead.linkedin_maybe != old_maybe:
+                    maybe_count += 1
+                else:
+                    not_found += 1
+            except Exception:
+                session.rollback()
+                logger.exception("Apify search failed for lead #%d (%s)", lead.id, lead.full_name)
+                failed_ids.add(lead.id)
+
         logger.info(
-            "Found %d leads for Apify LinkedIn search (concurrency=%d)",
-            len(lead_ids), APIFY_LEAD_CONCURRENCY,
+            "Apify batch done: %d found, %d maybe, %d not found, %d errors",
+            found, maybe_count, not_found, len(failed_ids),
         )
+        return {"yes": found, "maybe": maybe_count, "no": not_found, "failed_ids": failed_ids}
+    except Exception:
+        session.rollback()
+        logger.exception("Error during Apify batch")
+        raise
     finally:
         session.close()
-
-    global _counter
-    _counter = 0
-
-    semaphore = asyncio.Semaphore(APIFY_LEAD_CONCURRENCY)
-    tasks = [_process_one_lead(lid, semaphore, len(lead_ids)) for lid in lead_ids]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    found = 0
-    maybe_count = 0
-    not_found = 0
-    for r in results:
-        if isinstance(r, Exception):
-            logger.error("Unexpected Apify task error: %s", r)
-            not_found += 1
-        elif r == "yes":
-            found += 1
-        elif r == "maybe":
-            maybe_count += 1
-        else:
-            not_found += 1
-
-    logger.info(
-        "Apify search complete: %d found, %d maybe, %d not found out of %d",
-        found, maybe_count, not_found, len(lead_ids),
-    )
-    return {"yes": found, "maybe": maybe_count, "no": not_found}

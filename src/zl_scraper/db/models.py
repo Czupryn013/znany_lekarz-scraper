@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -219,11 +220,46 @@ class Lead(Base):
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
     clinics = relationship("Clinic", secondary=lead_clinic_roles, back_populates="leads")
+    linkedin_profiles = relationship("LinkedInProfile", back_populates="lead", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return (
             f"<Lead(id={self.id}, name='{self.full_name}', "
             f"status='{self.enrichment_status}', phone='{self.phone}')>"
+        )
+
+
+class LinkedInProfile(Base):
+    """A full LinkedIn profile fetched from Apify, pending human review."""
+
+    __tablename__ = "linkedin_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=True, index=True)
+    linkedin_url = Column(String(512), nullable=False)
+    public_identifier = Column(String(256), nullable=True)
+    first_name = Column(String(128), nullable=True)
+    last_name = Column(String(128), nullable=True)
+    headline = Column(String(1024), nullable=True)
+    location_text = Column(String(256), nullable=True)
+    country_code = Column(String(8), nullable=True)
+    profile_picture_url = Column(String(1024), nullable=True)
+    current_company = Column(String(512), nullable=True)
+    current_position = Column(String(512), nullable=True)
+    connections_count = Column(Integer, nullable=True)
+    review_status = Column(String(16), nullable=False, default="PENDING")  # PENDING / APPROVED / REJECTED
+    search_context = Column(String(16), nullable=True)  # APIFY_PASS1 / APIFY_PASS2
+    llm_verdict = Column(String(8), nullable=True)  # YES / MAYBE / NO
+    raw_profile = Column(JSON, nullable=True)
+    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    lead = relationship("Lead", back_populates="linkedin_profiles")
+
+    def __repr__(self) -> str:
+        return (
+            f"<LinkedInProfile(id={self.id}, lead_id={self.lead_id}, "
+            f"name='{self.first_name} {self.last_name}', status='{self.review_status}')>"
         )
 
 

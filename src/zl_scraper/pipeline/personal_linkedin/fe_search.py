@@ -1,5 +1,7 @@
 """FullEnrich People Search API step for personal LinkedIn discovery."""
 
+import asyncio
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +15,7 @@ from zl_scraper.utils.logging import get_logger
 logger = get_logger("personal_linkedin.fe_search")
 
 MAX_AGE = 75
+FE_RATE_LIMIT_INTERVAL = 1.0  # minimum seconds between FE API calls (60/min)
 
 
 def _get_lead_company_domain(session: Session, lead_id: int) -> str | None:
@@ -29,87 +32,55 @@ def _get_lead_company_domain(session: Session, lead_id: int) -> str | None:
     return row.website_domain if row else None
 
 
-def _get_leads_for_fe_search(
-    session: Session,
-    limit: Optional[int] = None,
-) -> list[Lead]:
-    """Get leads still without linkedin_url and not yet fully searched, with a company domain."""
-    leads = (
-        session.query(Lead)
-        .filter(
-            Lead.linkedin_url.is_(None),
-            Lead.linkedin_searched_at.is_(None),
-            Lead.pesel.isnot(None),
-        )
-        .order_by(Lead.id)
-        .all()
-    )
-
-    # Filter: must have company domain and age ≤ 75
-    from zl_scraper.pipeline.personal_linkedin.serp import _age_from_pesel
-
-    filtered = []
-    for lead in leads:
-        age = _age_from_pesel(lead.pesel)
-        if age is not None and age > MAX_AGE:
-            continue
-        domain = _get_lead_company_domain(session, lead.id)
-        if domain:
-            filtered.append((lead, domain))
-
-    if limit is not None:
-        filtered = filtered[:limit]
-
-    return filtered
-
-
-def run_fe_search_step(limit: Optional[int] = None) -> dict:
-    """Find LinkedIn profiles for leads via FullEnrich People Search API.
-
-    Returns dict with keys: yes, maybe, no.
-    """
-    logger.info("Starting personal LinkedIn FE search (limit=%s)", limit)
-
+async def run_fe_batch(lead_ids: list[int]) -> dict:
+    """Run FE search for a batch of leads (by ID). Sequential with 60/min rate limit."""
     session = SessionLocal()
     try:
-        lead_domains = _get_leads_for_fe_search(session, limit)
+        leads = session.query(Lead).filter(Lead.id.in_(lead_ids)).order_by(Lead.id).all()
+        # Only leads still without linkedin_url
+        leads = [l for l in leads if l.linkedin_url is None]
 
-        if not lead_domains:
-            logger.info("No leads need FE LinkedIn search")
-            return {"yes": 0, "maybe": 0, "no": 0}
-
-        logger.info("Found %d leads for FE LinkedIn search", len(lead_domains))
+        if not leads:
+            return {"yes": 0, "maybe": 0, "no": 0, "failed_ids": set()}
 
         found = 0
         not_found = 0
+        failed_ids: set[int] = set()
 
-        for lead, domain in lead_domains:
+        for lead in leads:
+            from zl_scraper.pipeline.personal_linkedin.serp import _age_from_pesel
+
+            age = _age_from_pesel(lead.pesel)
+            if age is not None and age > MAX_AGE:
+                continue
+
+            domain = _get_lead_company_domain(session, lead.id)
+            if not domain:
+                continue
+
             try:
-                result = search_person(lead.full_name, domain)
+                result = await asyncio.to_thread(search_person, lead.full_name, domain)
             except Exception:
                 logger.exception("FE search failed for lead #%d (%s)", lead.id, lead.full_name)
+                failed_ids.add(lead.id)
                 continue
 
             if result and result.get("linkedin_url"):
                 lead.linkedin_url = result["linkedin_url"]
                 found += 1
-                logger.info(
-                    "FE search found: #%d %s → %s",
-                    lead.id, lead.full_name, result["linkedin_url"],
-                )
+                logger.info("FE found: #%d %s → %s", lead.id, lead.full_name, result["linkedin_url"])
             else:
                 not_found += 1
 
-            session.commit()
+            # Rate limit: ~60/min
+            # await asyncio.sleep(FE_RATE_LIMIT_INTERVAL)
 
-        logger.info(
-            "FE search complete: %d found, %d not found",
-            found, not_found,
-        )
-        return {"yes": found, "maybe": 0, "no": not_found}
+        session.commit()
+        logger.info("FE batch done: %d found, %d not found, %d errors", found, not_found, len(failed_ids))
+        return {"yes": found, "maybe": 0, "no": not_found, "failed_ids": failed_ids}
     except Exception:
         session.rollback()
-        logger.exception("Error during FE LinkedIn search")
+        logger.exception("Error during FE batch")
         raise
     finally:
         session.close()

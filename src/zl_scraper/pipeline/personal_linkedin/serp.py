@@ -16,16 +16,19 @@ from zl_scraper.utils.logging import get_logger
 
 logger = get_logger("personal_linkedin.serp")
 
-SERP_BATCH_SIZE = 5
+SERP_BATCH_SIZE = 10
 MAX_AGE = 75
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _age_from_pesel(pesel: str) -> Optional[int]:
+def _age_from_pesel(pesel: Optional[str]) -> Optional[int]:
     """Return age in years from PESEL, or None if invalid."""
     from datetime import date
+
+    if not pesel:
+        return None
 
     digits = "".join(ch for ch in pesel if ch.isdigit())
     if len(digits) != 11:
@@ -112,7 +115,6 @@ def _get_leads_for_serp(
     leads = (
         session.query(Lead)
         .filter(
-            Lead.pesel.isnot(None),
             Lead.linkedin_url.is_(None),
             Lead.linkedin_searched_at.is_(None),
         )
@@ -124,7 +126,7 @@ def _get_leads_for_serp(
     filtered = []
     for lead in leads:
         age = _age_from_pesel(lead.pesel)
-        if age is not None and age <= MAX_AGE:
+        if age is None or age <= MAX_AGE:
             filtered.append(lead)
 
     if limit is not None:
@@ -140,14 +142,20 @@ async def _process_serp_batch(
     session: Session,
     leads: list[Lead],
     serp_responses: list,
-) -> tuple[int, int, int]:
-    """Categorise SERP results via LLM and save to leads. Returns per-person (yes, maybe, no) counts."""
+) -> tuple[int, int, int, set[int]]:
+    """Categorise SERP results via LLM and save to leads. Returns (yes, maybe, no, failed_ids)."""
     yes_count = 0
     maybe_count = 0
     no_count = 0
+    failed_ids: set[int] = set()
 
     for lead, serp_resp in zip(leads, serp_responses):
-        if serp_resp is None or not serp_resp.results:
+        if serp_resp is None:
+            # SERP actor error for this keyword — skip so it gets retried next run
+            failed_ids.add(lead.id)
+            continue
+
+        if not serp_resp.results:
             no_count += 1
             continue
 
@@ -202,7 +210,7 @@ async def _process_serp_batch(
             no_count += 1
 
     session.commit()
-    return yes_count, maybe_count, no_count
+    return yes_count, maybe_count, no_count, failed_ids
 
 
 async def run_serp_search_step(limit: Optional[int] = None) -> dict:
@@ -223,28 +231,53 @@ async def run_serp_search_step(limit: Optional[int] = None) -> dict:
 
         logger.info("Found %d leads for SERP LinkedIn search", total)
 
-        # Build all keywords upfront and fire them in one parallel run_serp_search call.
-        # SERP_BATCH_SIZE controls how many keywords go into each Apify actor (5),
-        # while run_serp_search handles concurrency across actors.
+        # Batch all keywords into a single SERP actor call (up to 100 per run).
         keywords = [f"{lead.full_name} site:pl.linkedin.com/in" for lead in leads]
-        semaphore = asyncio.Semaphore(20)
 
         serp_responses = await run_serp_search(
-            keywords, semaphore, keywords_per_call=SERP_BATCH_SIZE,
+            keywords, keywords_per_call=SERP_BATCH_SIZE,
         )
 
-        total_yes, total_maybe, total_no = await _process_serp_batch(
+        total_yes, total_maybe, total_no, failed_ids = await _process_serp_batch(
             session, leads, serp_responses,
         )
 
         logger.info(
-            "SERP search complete: %d YES, %d MAYBE, %d NO out of %d leads",
-            total_yes, total_maybe, total_no, total,
+            "SERP search complete: %d YES, %d MAYBE, %d NO, %d errors out of %d leads",
+            total_yes, total_maybe, total_no, len(failed_ids), total,
         )
-        return {"yes": total_yes, "maybe": total_maybe, "no": total_no}
+        return {"yes": total_yes, "maybe": total_maybe, "no": total_no, "failed_ids": failed_ids}
     except Exception:
         session.rollback()
         logger.exception("Error during SERP LinkedIn search")
+        raise
+    finally:
+        session.close()
+
+
+async def run_serp_batch(lead_ids: list[int]) -> dict:
+    """Run SERP search for a batch of leads (by ID). One SERP actor call for the whole batch."""
+    session = SessionLocal()
+    try:
+        leads = session.query(Lead).filter(Lead.id.in_(lead_ids)).order_by(Lead.id).all()
+        # Filter: only leads still without linkedin_url
+        leads = [l for l in leads if l.linkedin_url is None]
+
+        if not leads:
+            return {"yes": 0, "maybe": 0, "no": 0, "failed_ids": set()}
+
+        keywords = [f"{lead.full_name} site:pl.linkedin.com/in" for lead in leads]
+        logger.info("SERP batch: %d keywords in one call", len(keywords))
+
+        serp_responses = await run_serp_search(keywords, keywords_per_call=len(keywords))
+
+        yes, maybe, no, failed_ids = await _process_serp_batch(session, leads, serp_responses)
+
+        logger.info("SERP batch done: %d YES, %d MAYBE, %d NO, %d errors", yes, maybe, no, len(failed_ids))
+        return {"yes": yes, "maybe": maybe, "no": no, "failed_ids": failed_ids}
+    except Exception:
+        session.rollback()
+        logger.exception("Error during SERP batch")
         raise
     finally:
         session.close()

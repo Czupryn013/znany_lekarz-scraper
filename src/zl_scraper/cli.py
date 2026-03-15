@@ -741,7 +741,7 @@ def enrich_phones(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many fresh PENDING leads enter Prospeo"),
     step: Optional[str] = typer.Option(None, "--step", help="Run only one tier: prospeo, fullenrich, or lusha"),
     retry_no_phone: bool = typer.Option(False, "--retry-no-phone", help="Re-run waterfall for LUSHA_DONE leads that still have no phone"),
-    retry_linkedin: bool = typer.Option(False, "--retry-linkedin", help="Re-run waterfall only for LUSHA_DONE leads that have linkedin_url but no phone"),
+    retry_linkedin: bool = typer.Option(False, "--retry-linkedin", help="Re-run waterfall for linkedin_url + no-phone leads that were not already retried"),
 ) -> None:
     """Run phone enrichment waterfall: Prospeo → FullEnrich → Lusha."""
     from zl_scraper.pipeline.phone_enrich.enrich_phones import run_enrich_phones
@@ -812,11 +812,12 @@ def status_leads() -> None:
         table.add_row("───", "───")
 
         table.add_row("[bold]Enrichment status[/]", "")
-        status_order = ["PENDING", "PROSPEO_DONE", "FE_DONE", "LUSHA_DONE"]
+        status_order = ["PENDING", "PROSPEO_DONE", "FE_DONE", "LUSHA_DONE", "LUSHA_DONE_LI"]
         for s in status_order:
             cnt = status_map.get(s, 0)
             if cnt > 0:
-                table.add_row(f"  {s}", str(cnt))
+                label = "  LUSHA_DONE (retry-linkedin exhausted)" if s == "LUSHA_DONE_LI" else f"  {s}"
+                table.add_row(label, str(cnt))
         # Any other statuses not in the expected list
         for s, cnt in sorted(status_map.items()):
             if s not in status_order and cnt > 0:
@@ -1101,6 +1102,117 @@ def review_lead_linkedin() -> None:
         console.print(f"\nDone. Approved {approved}, rejected {rejected}, skipped {skipped}.")
     finally:
         session.close()
+
+
+# ── LinkedIn profile viewer ──────────────────────────────────────────────
+
+
+def _print_review_import_summary(result: dict) -> None:
+    """Render a compact summary table after importing viewer decisions."""
+    table = Table(title="LinkedIn Review Import Summary")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green", justify="right")
+    table.add_row("Processed decision rows", str(result.get("processed", 0)))
+    table.add_row("Approved profiles", str(result.get("approved", 0)))
+    table.add_row("Rejected profiles", str(result.get("rejected", 0)))
+    table.add_row("Skipped / invalid rows", str(result.get("skipped", 0)))
+    table.add_row("Missing profile IDs", str(result.get("missing_profiles", 0)))
+    table.add_row("Unique leads with linkedin_url set", str(result.get("leads_linkedin_set", 0)))
+    table.add_row("URLs appended to linkedin_no", str(result.get("linkedin_no_appended", 0)))
+    table.add_row("Auto-rejected sibling profiles", str(result.get("auto_rejected", 0)))
+    console.print(table)
+
+
+@app.command(name="export-viewer")
+def export_viewer(
+    output: str = typer.Option("linkedin_viewer.html", "--output", help="Output HTML file path"),
+    brave_path: str = typer.Option(
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        "--brave-path",
+        help="Brave executable path used to auto-open the viewer",
+    ),
+) -> None:
+    """Interactive viewer loop: export, auto-open, then import/delete in one flow."""
+    import subprocess
+
+    from zl_scraper.pipeline.personal_linkedin.viewer import export_viewer_html, import_review_decisions
+
+    output_path = Path(output).expanduser()
+
+    console.print(
+        "[cyan]Interactive viewer mode:[/cyan] exports HTML, opens it in Brave, "
+        "then waits for action (import/delete/quit)."
+    )
+
+    while True:
+        path = Path(export_viewer_html(output_path=str(output_path))).resolve()
+        console.print(f"[green]Viewer exported to {path}[/green]")
+
+        try:
+            subprocess.Popen([brave_path, str(path)])
+            console.print("[dim]Opened viewer in Brave.[/dim]")
+        except FileNotFoundError:
+            console.print(
+                f"[yellow]Brave not found at {brave_path}. Open manually: {path}[/yellow]"
+            )
+
+        console.print(
+            "\nType one of:\n"
+            "  [bold]delete[/bold]  → delete exported HTML and exit\n"
+            "  [bold]<file.json>[/bold]  → import review decisions from JSON\n"
+            "  [bold]quit[/bold]  → exit\n"
+        )
+
+        while True:
+            raw = input("[delete | decisions.json | quit]: ").strip()
+            if not raw:
+                continue
+
+            lower = raw.lower()
+            if lower in {"quit", "q", "exit"}:
+                console.print("[green]Viewer loop finished.[/green]")
+                return
+
+            if lower == "delete":
+                if path.exists():
+                    path.unlink()
+                    console.print(f"[green]Deleted {path.name}[/green]")
+                else:
+                    console.print("[yellow]File already missing; nothing to delete.[/yellow]")
+                console.print("[green]Viewer loop finished.[/green]")
+                return
+
+            decisions_path = Path(raw).expanduser()
+            if not decisions_path.is_absolute():
+                decisions_path = Path.cwd() / decisions_path
+
+            if not decisions_path.exists():
+                console.print(f"[red]File not found:[/red] {decisions_path}")
+                continue
+
+            result = import_review_decisions(json_path=str(decisions_path))
+            _print_review_import_summary(result)
+
+            delete_after = input("Delete exported viewer HTML now? [y/N]: ").strip().lower()
+            if delete_after in {"y", "yes", "delete"}:
+                if path.exists():
+                    path.unlink()
+                    console.print(f"[green]Deleted {path.name}[/green]")
+                console.print("[green]Viewer loop finished.[/green]")
+                return
+
+            break
+
+
+@app.command(name="import-reviews")
+def import_reviews(
+    file: str = typer.Option(..., "--file", help="Path to decisions JSON file"),
+) -> None:
+    """Import LinkedIn profile review decisions from the exported viewer."""
+    from zl_scraper.pipeline.personal_linkedin.viewer import import_review_decisions
+
+    result = import_review_decisions(json_path=file)
+    _print_review_import_summary(result)
 
 
 # ── filter-worked ─────────────────────────────────────────────────────────
