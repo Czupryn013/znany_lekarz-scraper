@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 # child / related variants automatically.
 DEFAULT_EXCLUDED_KEYWORDS: list[str] = [
     "psychiatra",
+    "psychoterapeuta",
+    "psychotraumatolog",
+    "psychoonkolog",
+    "seksuolog",
     "psycholog",
     "geriatra",
     "fizjo",
@@ -141,12 +145,30 @@ class FilterResult:
         return self.total_doctors_in_matched / self.total_matched if self.matched else 0
 
 
+def _compute_allowed_ratio(session: Session, clinic_id: int, allowed_spec_names: list[str]) -> float:
+    """Return the fraction of a clinic's specializations that are in the allowed list."""
+    all_specs = (
+        session.query(Specialization.name)
+        .join(SearchQuery, SearchQuery.specialization_id == Specialization.id)
+        .filter(SearchQuery.clinic_id == clinic_id)
+        .distinct()
+        .all()
+    )
+    total = len(all_specs)
+    if total == 0:
+        return 0.0
+    allowed_set = set(allowed_spec_names)
+    allowed_count = sum(1 for (name,) in all_specs if name in allowed_set)
+    return allowed_count / total
+
+
 def query_filtered_clinics(
     session: Session,
     min_doctors: int = DEFAULT_MIN_DOCTORS,
     allowed_spec_names: list[str] | None = None,
+    strict: bool = False,
 ) -> FilterResult:
-    """Return enriched clinics filtered in two stages: doctor count first, then specialization."""
+    """Return enriched clinics filtered by doctor count, specialization, and name."""
     if allowed_spec_names is None:
         allowed_spec_names = build_allowed_specialization_names()
 
@@ -185,17 +207,31 @@ def query_filtered_clinics(
     )
     rejected_specialization = passed_doctors_count - len(passed_spec)
 
+    # Stage 2b (strict): require ≥50% of specializations to be allowed
+    if strict:
+        before_strict = len(passed_spec)
+        passed_spec = [
+            c for c in passed_spec
+            if _compute_allowed_ratio(session, c.id, allowed_spec_names) >= 0.5
+        ]
+        rejected_specialization += before_strict - len(passed_spec)
+        logger.info(
+            "Strict mode: removed %d clinics with <50%% allowed specializations",
+            before_strict - len(passed_spec),
+        )
+
     # Stage 3: exclude public clinics and big chains by name / legal_name
     clinics = [c for c in passed_spec if not is_excluded_by_name(c)]
     rejected_name = len(passed_spec) - len(clinics)
 
     logger.info(
-        "Filter: %d enriched → %d rejected (doctors < %d) → %d rejected (spec) "
+        "Filter: %d enriched → %d rejected (doctors < %d) → %d rejected (spec%s) "
         "→ %d rejected (name) → %d matched",
         total_enriched,
         rejected_doctors,
         min_doctors,
         rejected_specialization,
+        ", strict ≥50%" if strict else "",
         rejected_name,
         len(clinics),
     )
