@@ -64,6 +64,10 @@ LUSHA_API_KEY: str = os.getenv("LUSHA_API_KEY", "")
 FULLENRICH_POLL_INTERVAL_SECS: int = int(os.getenv("FULLENRICH_POLL_INTERVAL_SECS", "15"))
 FULLENRICH_POLL_TIMEOUT_SECS: int = int(os.getenv("FULLENRICH_POLL_TIMEOUT_SECS", "600"))
 
+# ── Employee scraping ───────────────────────────────────────────────────
+EMPLOYEE_SCRAPE_CONCURRENCY: int = int(os.getenv("EMPLOYEE_SCRAPE_CONCURRENCY", "1"))
+MAX_EMPLOYEES_PER_COMPANY: int = int(os.getenv("MAX_EMPLOYEES_PER_COMPANY", "20"))
+
 # ── ZnanyLekarz URLs ────────────────────────────────────────────────────
 ZL_BASE_URL = "https://www.znanylekarz.pl"
 ZL_SEARCH_URL = f"{ZL_BASE_URL}/szukaj"

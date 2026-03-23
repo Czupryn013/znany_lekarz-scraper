@@ -94,7 +94,11 @@ class Clinic(Base):
     doctors = relationship("Doctor", secondary=clinic_doctors, back_populates="clinics")
     linkedin_candidates = relationship("LinkedInCandidate", back_populates="clinic", cascade="all, delete-orphan")
     board_members = relationship("BoardMember", back_populates="clinic", cascade="all, delete-orphan")
+    employees = relationship("Employee", back_populates="clinic", cascade="all, delete-orphan")
     leads = relationship("Lead", secondary=lead_clinic_roles, back_populates="clinics")
+
+    # Employee scraping checkpoint
+    employees_scraped_at = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -197,6 +201,34 @@ class BoardMember(Base):
 
     def __repr__(self) -> str:
         return f"<BoardMember(id={self.id}, name='{self.full_name}', source='{self.source}')>"
+
+
+class Employee(Base):
+    """A LinkedIn employee scraped from a company profile, pending human review."""
+
+    __tablename__ = "employees"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "linkedin_url", name="uq_employee_clinic_linkedin"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False)
+    full_name = Column(String(256), nullable=False)
+    linkedin_url = Column(String(512), nullable=False)
+    position_title = Column(String(1024), nullable=True)
+    company_name = Column(String(512), nullable=True)
+    review_status = Column(String(16), nullable=False, default="PENDING")
+    raw_profile = Column(JSON, nullable=True)
+    scraped_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    clinic = relationship("Clinic", back_populates="employees")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Employee(id={self.id}, name='{self.full_name}', "
+            f"title='{self.position_title}', status='{self.review_status}')>"
+        )
 
 
 class Lead(Base):

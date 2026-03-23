@@ -1020,13 +1020,13 @@ def manual_domains(
 @app.command(name="find-linkedin", rich_help_panel="Company Enrichment")
 def find_linkedin(
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
-    skip_maybe: bool = typer.Option(False, "--skip-maybe", help="Skip second-pass MAYBE validation"),
     all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
+    retry_apify: bool = typer.Option(False, "--retry-apify", help="Re-run Apify keyword search for previously searched clinics with no result"),
 ) -> None:
-    """Discover LinkedIn company pages for clinics via SERP + LLM categorisation."""
-    from zl_scraper.pipeline.company_enrich.find_linkedin import run_find_linkedin
+    """Find LinkedIn company pages via cheap SERP + Apify keyword search fallback."""
+    from zl_scraper.pipeline.employee_scraper.find_company import run_find_company_linkedin
 
-    asyncio.run(run_find_linkedin(limit=limit, skip_maybe=skip_maybe, icp_only=not all_clinics))
+    asyncio.run(run_find_company_linkedin(limit=limit, icp_only=not all_clinics, retry_apify=retry_apify))
     console.print("[green]LinkedIn discovery complete.[/green]")
 
 
@@ -1234,10 +1234,21 @@ def review_linkedin(
     list_all: bool = typer.Option(False, "--list", help="List all MAYBE candidates"),
     approve: Optional[int] = typer.Option(None, "--approve", help="Approve candidate by ID"),
     reject: Optional[int] = typer.Option(None, "--reject", help="Reject candidate by ID"),
+    reject_all: bool = typer.Option(False, "--reject-all", help="Reject all MAYBE candidates"),
 ) -> None:
     """Review LinkedIn MAYBE candidates — list, approve, or reject."""
     session = SessionLocal()
     try:
+        if reject_all:
+            count = (
+                session.query(LinkedInCandidate)
+                .filter(LinkedInCandidate.status == "maybe")
+                .update({"status": "no"})
+            )
+            session.commit()
+            console.print(f"[yellow]Rejected all {count} MAYBE candidates.[/yellow]")
+            return
+
         if approve is not None:
             candidate = session.get(LinkedInCandidate, approve)
             if not candidate:
@@ -1261,12 +1272,15 @@ def review_linkedin(
             console.print(f"[yellow]Rejected candidate {reject} — {candidate.url}[/yellow]")
             return
 
-        # Default: list MAYBE candidates
+        # Default: list MAYBE candidates grouped by clinic
         candidates = (
             session.query(LinkedInCandidate)
             .join(Clinic, Clinic.id == LinkedInCandidate.clinic_id)
-            .filter(LinkedInCandidate.status == "maybe")
-            .order_by(LinkedInCandidate.id)
+            .filter(
+                LinkedInCandidate.status == "maybe",
+                Clinic.linkedin_url.is_(None),
+            )
+            .order_by(LinkedInCandidate.clinic_id, LinkedInCandidate.id)
             .all()
         )
 
@@ -1274,24 +1288,25 @@ def review_linkedin(
             console.print("[green]No MAYBE candidates pending review.[/green]")
             return
 
-        table = Table(title=f"LinkedIn MAYBE Candidates ({len(candidates)})")
-        table.add_column("ID", style="dim", justify="right")
-        table.add_column("Clinic", style="cyan")
-        table.add_column("Domain", style="blue")
-        table.add_column("LinkedIn URL", style="yellow")
-
+        # Group by clinic
+        by_clinic: dict[int, list] = {}
         for cand in candidates:
-            clinic = session.get(Clinic, cand.clinic_id)
-            table.add_row(
-                str(cand.id),
-                clinic.name if clinic else "?",
-                clinic.website_domain if clinic else "?",
-                cand.url,
-            )
+            by_clinic.setdefault(cand.clinic_id, []).append(cand)
 
-        console.print(table)
+        console.print(f"\n[bold]LinkedIn MAYBE Candidates — {len(candidates)} across {len(by_clinic)} clinics[/bold]\n")
+
+        for clinic_id, cands in by_clinic.items():
+            clinic = session.get(Clinic, clinic_id)
+            clinic_name = clinic.name if clinic else "?"
+            domain = clinic.website_domain if clinic else "?"
+
+            console.print(f"[cyan bold]{clinic_name}[/cyan bold]  [dim]{domain}[/dim]")
+            for cand in cands:
+                console.print(f"  [dim]{cand.id:>4}[/dim]  [yellow]{cand.url}[/yellow]")
+            console.print()
+
         console.print(
-            "\nUse [bold]--approve <ID>[/bold] or [bold]--reject <ID>[/bold] to resolve."
+            "Use [bold]--approve <ID>[/bold] or [bold]--reject <ID>[/bold] to resolve."
         )
     finally:
         session.close()
@@ -1828,6 +1843,113 @@ def reset(
             raise typer.Exit(1)
     finally:
         session.close()
+
+
+# ── Employee Scraping ───────────────────────────────────────────────────
+
+
+@app.command(name="scrape-employees", rich_help_panel="Employee Scraping")
+def scrape_employees(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Max clinics to process"),
+    all_clinics: bool = typer.Option(False, "--all", help="Include non-ICP clinics"),
+) -> None:
+    """Scrape LinkedIn employees for clinics with confirmed linkedin_url."""
+    from zl_scraper.pipeline.employee_scraper.scrape_employees import run_scrape_employees
+
+    asyncio.run(run_scrape_employees(limit=limit, icp_only=not all_clinics))
+
+
+@app.command(name="employee-viewer", rich_help_panel="Employee Scraping")
+def employee_viewer(
+    output: str = typer.Option("employee_viewer.html", "--output", help="Output HTML file path"),
+    brave_path: str = typer.Option(
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        "--brave-path",
+        help="Brave executable path used to auto-open the viewer",
+    ),
+) -> None:
+    """Interactive viewer loop: export, auto-open, then import/delete."""
+    import subprocess
+
+    from zl_scraper.pipeline.employee_scraper.viewer import export_viewer_html, import_review_decisions
+
+    output_path = Path(output).expanduser()
+
+    console.print(
+        "[cyan]Employee viewer mode:[/cyan] exports HTML, opens in Brave, "
+        "then waits for action (import/delete/quit)."
+    )
+
+    while True:
+        path = Path(export_viewer_html(output_path=str(output_path))).resolve()
+        console.print(f"[green]Employee viewer exported to {path}[/green]")
+
+        try:
+            subprocess.Popen([brave_path, str(path)])
+            console.print("[dim]Opened viewer in Brave.[/dim]")
+        except FileNotFoundError:
+            console.print(
+                f"[yellow]Brave not found at {brave_path}. Open manually: {path}[/yellow]"
+            )
+
+        console.print(
+            "\nType one of:\n"
+            "  [bold]delete[/bold]  → delete exported HTML and exit\n"
+            "  [bold]<file.json>[/bold]  → import employee decisions from JSON\n"
+            "  [bold]quit[/bold]  → exit\n"
+        )
+
+        while True:
+            raw = input("[delete | employee_decisions.json | quit]: ").strip()
+            if not raw:
+                continue
+
+            lower = raw.lower()
+            if lower in {"quit", "q", "exit"}:
+                console.print("[green]Employee viewer loop finished.[/green]")
+                return
+
+            if lower == "delete":
+                if path.exists():
+                    path.unlink()
+                    console.print(f"[green]Deleted {path.name}[/green]")
+                console.print("[green]Employee viewer loop finished.[/green]")
+                return
+
+            decisions_path = Path(raw).expanduser()
+            if not decisions_path.is_absolute():
+                decisions_path = Path.cwd() / decisions_path
+
+            if not decisions_path.exists():
+                console.print(f"[red]File not found:[/red] {decisions_path}")
+                continue
+
+            result = import_review_decisions(json_path=str(decisions_path))
+            console.print(
+                f"[green]Imported:[/green] {result['approved']} approved, "
+                f"{result['rejected']} rejected, {result['skipped']} skipped"
+            )
+
+            delete_after = input("Delete exported viewer HTML now? [y/N]: ").strip().lower()
+            if delete_after in {"y", "yes", "delete"}:
+                if path.exists():
+                    path.unlink()
+                    console.print(f"[green]Deleted {path.name}[/green]")
+                console.print("[green]Employee viewer loop finished.[/green]")
+                return
+
+            break
+
+
+@app.command(name="sync-employees", rich_help_panel="Employee Scraping")
+def sync_employees_cmd(
+    all_clinics: bool = typer.Option(False, "--all", help="Include non-ICP clinics"),
+) -> None:
+    """Sync APPROVED employees into the leads table."""
+    from zl_scraper.pipeline.employee_scraper.sync_employees import run_sync_employees
+
+    run_sync_employees(icp_only=not all_clinics)
+
 
 if __name__ == "__main__":
     app()

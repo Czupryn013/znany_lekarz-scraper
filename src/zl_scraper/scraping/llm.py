@@ -254,6 +254,121 @@ async def validate_linkedin_profile(
         return False
 
 
+# ── LinkedIn keyword search company matching ─────────────────────────────
+
+KEYWORD_COMPANY_MATCH_SYSTEM_PROMPT = (
+    "You are a data researcher. From the LinkedIn company search results below, "
+    "pick the ONE that matches the target Polish medical clinic.\n\n"
+    "Match by: company name similarity, location in Poland, medical/healthcare industry.\n\n"
+    "OUTPUT: The company_url of the best match, or NULL if none match.\n"
+    "No explanations, no extra text — just the URL or NULL."
+)
+
+
+def _build_keyword_match_prompt(
+    clinic_name: str,
+    legal_name: str | None,
+    domain: str | None,
+    results: list[dict],
+) -> str:
+    """Build user message for keyword company matching."""
+    results_str = "\n".join(
+        f"- {r.get('name', '?')} | {r.get('industry', '?')} | "
+        f"{r.get('location', '?')} | {r.get('company_url', '?')} | "
+        f"{r.get('description', '')[:100]}"
+        for r in results
+    )
+    return (
+        f"TARGET\n- clinic: {clinic_name}\n- legal name: {legal_name or 'unknown'}\n"
+        f"- domain: {domain or 'unknown'}\n\n"
+        f"RESULTS:\n{results_str}"
+    )
+
+
+async def match_keyword_company(
+    clinic_name: str,
+    legal_name: str | None,
+    domain: str | None,
+    results: list[dict],
+) -> str | None:
+    """Ask LLM to pick the correct company URL from keyword search results."""
+    if not results:
+        return None
+
+    client = _get_client()
+    user_msg = _build_keyword_match_prompt(clinic_name, legal_name, domain, results)
+
+    try:
+        resp = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": KEYWORD_COMPANY_MATCH_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        answer = resp.choices[0].message.content.strip()
+        if answer.upper() == "NULL" or not answer:
+            logger.info("[kw-match] '%s' — no match from %d results", clinic_name, len(results))
+            return None
+
+        # Validate it looks like a LinkedIn URL
+        if "linkedin.com/company" not in answer.lower():
+            logger.warning(
+                "[kw-match] '%s' — LLM returned non-LinkedIn URL: %s",
+                clinic_name,
+                answer[:120],
+            )
+            return None
+
+        logger.info("[kw-match] '%s' — matched: %s", clinic_name, answer)
+        return answer.strip()
+    except Exception as exc:
+        logger.error("[kw-match] '%s' — LLM call failed: %s", clinic_name, exc)
+        return None
+
+
+# ── Company name shortening for search ────────────────────────────────────
+
+SHORTEN_NAME_SYSTEM_PROMPT = (
+    "You shorten a Polish company name to its core brand name for LinkedIn search.\n\n"
+    "Remove:\n"
+    "- Legal entity types: sp. z o.o., S.A., s.c., sp.j., sp.k., spółka, etc.\n"
+    "- Location suffixes: city names, 'w Warszawie', 'oddział', 'filia', etc.\n"
+    "- Generic words that don't help search: 'grupa', 'centrum', 'zakład' ONLY if they are filler "
+    "(keep them if they are part of the actual brand, e.g. 'Centrum Medyczne Enel-Med').\n"
+    "- NIP, KRS, REGON numbers if present.\n\n"
+    "Keep the actual brand/trade name intact.\n"
+    "If the name is already short and clean, return it as-is.\n\n"
+    "OUTPUT: Only the shortened name. No quotes, no explanation."
+)
+
+
+async def shorten_company_name(name: str) -> str:
+    """Use LLM to strip legal entity type, location, and other filler from a company name."""
+    client = _get_client()
+
+    try:
+        resp = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": SHORTEN_NAME_SYSTEM_PROMPT},
+                {"role": "user", "content": name},
+            ],
+        )
+        shortened = resp.choices[0].message.content.strip()
+        if not shortened:
+            logger.warning("[shorten] LLM returned empty for '%s', using original", name)
+            return name
+        if shortened != name:
+            logger.info("[shorten] '%s' → '%s'", name, shortened)
+        return shortened
+    except Exception as exc:
+        logger.error("[shorten] LLM call failed for '%s': %s", name, exc)
+        return name
+
+
 # ── NIP extraction ────────────────────────────────────────────────────────
 
 NIP_SYSTEM_PROMPT = (
