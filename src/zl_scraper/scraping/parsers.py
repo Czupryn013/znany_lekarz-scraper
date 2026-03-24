@@ -44,6 +44,15 @@ class ProfileData:
 
 
 @dataclass
+class DoctorSpecData:
+    """A specialization entry from the facility doctors API."""
+
+    zl_id: int
+    name: str
+    is_in_progress: bool = False
+
+
+@dataclass
 class DoctorData:
     """A doctor record from the facility doctors API."""
 
@@ -51,6 +60,14 @@ class DoctorData:
     name: str | None = None
     surname: str | None = None
     zl_url: str | None = None
+    gender: int | None = None  # 1=male, 0=female, None=unknown
+    img_url: str | None = None
+    opinions_positive: int | None = None
+    opinions_neutral: int | None = None
+    opinions_negative: int | None = None
+    booking_ratio: float | None = None
+    is_bookable: bool | None = None
+    specializations: list[DoctorSpecData] = field(default_factory=list)
 
 
 def _extract_profile_id_from_card(element) -> str | None:
@@ -250,6 +267,35 @@ def parse_coordinates(maps_url: str) -> tuple[float | None, float | None]:
     return None, None
 
 
+def _parse_gender(raw: str | None) -> int | None:
+    """Convert gender string to int: 1=male, 0=female, None=unknown."""
+    if raw == "male":
+        return 1
+    if raw == "female":
+        return 0
+    return None
+
+
+def _parse_specializations(raw: list | None) -> list[DoctorSpecData]:
+    """Extract specialization entries from the API response."""
+    if not raw or not isinstance(raw, list):
+        return []
+    specs = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        zl_id = item.get("id")
+        name = item.get("name")
+        if zl_id is None or not name:
+            continue
+        specs.append(DoctorSpecData(
+            zl_id=int(zl_id),
+            name=str(name),
+            is_in_progress=bool(item.get("is_in_progress", False)),
+        ))
+    return specs
+
+
 def parse_doctors_response(json_text: str) -> list[DoctorData]:
     """Parse the doctors JSON array, return a list of DoctorData."""
     try:
@@ -268,11 +314,27 @@ def parse_doctors_response(json_text: str) -> list[DoctorData]:
             zl_url = item.get("url") or None
             if zl_url and zl_url.startswith("/"):
                 zl_url = f"https://www.znanylekarz.pl{zl_url}"
+
+            # Opinion stats
+            opinion_stats = item.get("opinion_stats") or {}
+
+            # Photo URL
+            photos = item.get("photos") or {}
+            img_url = photos.get("big_url") or None
+
             doctors.append(DoctorData(
                 id=int(doc_id),
                 name=name,
                 surname=surname,
                 zl_url=zl_url,
+                gender=_parse_gender(item.get("gender")),
+                img_url=img_url,
+                opinions_positive=opinion_stats.get("positive"),
+                opinions_neutral=opinion_stats.get("neutral"),
+                opinions_negative=opinion_stats.get("negative"),
+                booking_ratio=item.get("booking_ratio"),
+                is_bookable=item.get("is_bookable"),
+                specializations=_parse_specializations(item.get("specializations")),
             ))
         return doctors
     except (json.JSONDecodeError, TypeError, ValueError):

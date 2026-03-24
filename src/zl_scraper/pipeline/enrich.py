@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from zl_scraper.config import PROFILE_CONCURRENCY
 from zl_scraper.db.engine import SessionLocal
-from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, clinic_doctors
+from zl_scraper.db.models import Clinic, ClinicLocation, Doctor, Specialization, clinic_doctors, doctor_specializations
 from zl_scraper.scraping.http_client import WaterfallClient
 from zl_scraper.scraping.profile_enrichment import enrich_clinic
 from zl_scraper.utils.logging import get_logger
@@ -57,7 +57,7 @@ def _save_enrichment(
             )
         )
 
-    # Upsert doctors (INSERT … ON CONFLICT DO NOTHING) and link via M2M
+    # Upsert doctors and link via M2M
     for doc in doctors_list:
         if doc.id is None:
             continue
@@ -66,15 +66,60 @@ def _save_enrichment(
             name=doc.name,
             surname=doc.surname,
             zl_url=doc.zl_url,
-        ).on_conflict_do_nothing(index_elements=["id"])
+            gender=doc.gender,
+            img_url=doc.img_url,
+            opinions_positive=doc.opinions_positive,
+            opinions_neutral=doc.opinions_neutral,
+            opinions_negative=doc.opinions_negative,
+        ).on_conflict_do_update(
+            index_elements=["id"],
+            set_={
+                "name": doc.name,
+                "surname": doc.surname,
+                "zl_url": doc.zl_url,
+                "gender": doc.gender,
+                "img_url": doc.img_url,
+                "opinions_positive": doc.opinions_positive,
+                "opinions_neutral": doc.opinions_neutral,
+                "opinions_negative": doc.opinions_negative,
+            },
+        )
         session.execute(stmt)
 
-        # Insert association (ignore if already linked)
+        # Insert clinic-doctor association with booking fields
         assoc_stmt = pg_insert(clinic_doctors).values(
             clinic_id=clinic.id,
             doctor_id=doc.id,
-        ).on_conflict_do_nothing()
+            booking_ratio=doc.booking_ratio,
+            is_bookable=doc.is_bookable,
+        ).on_conflict_do_update(
+            constraint="clinic_doctors_pkey",
+            set_={
+                "booking_ratio": doc.booking_ratio,
+                "is_bookable": doc.is_bookable,
+            },
+        )
         session.execute(assoc_stmt)
+
+        # Upsert doctor specializations
+        for spec in doc.specializations:
+            # Ensure specialization exists
+            spec_stmt = pg_insert(Specialization.__table__).values(
+                id=spec.zl_id,
+                name=spec.name,
+            ).on_conflict_do_nothing(index_elements=["id"])
+            session.execute(spec_stmt)
+
+            # Link doctor to specialization
+            ds_stmt = pg_insert(doctor_specializations).values(
+                doctor_id=doc.id,
+                specialization_id=spec.zl_id,
+                is_in_progress=spec.is_in_progress,
+            ).on_conflict_do_update(
+                constraint="doctor_specializations_pkey",
+                set_={"is_in_progress": spec.is_in_progress},
+            )
+            session.execute(ds_stmt)
 
     session.commit()
 

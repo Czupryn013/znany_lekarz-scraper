@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead-Clinic Network</title>
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/layout-base@2.0.1/layout-base.js"></script>
+<script src="https://unpkg.com/cose-base@2.2.0/cose-base.js"></script>
+<script src="https://unpkg.com/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+/* Top bar */
+#topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1a1d27; border-bottom: 1px solid #2a2d3a; flex-wrap: wrap; }
+#topbar h1 { font-size: 16px; font-weight: 600; color: #f7a75b; white-space: nowrap; }
+#search-box { flex: 1; max-width: 400px; padding: 8px 12px; border: 1px solid #3a3d4a; border-radius: 6px; background: #252832; color: #e0e0e0; font-size: 14px; outline: none; }
+#search-box:focus { border-color: #f7a75b; }
+#stats { font-size: 12px; color: #888; white-space: nowrap; }
+.topbar-btn { padding: 6px 14px; border: 1px solid #3a3d4a; border-radius: 4px; background: #252832; color: #e0e0e0; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.topbar-btn:hover { background: #3a3d4a; }
+.topbar-check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #aaa; cursor: pointer; white-space: nowrap; }
+.topbar-check input { cursor: pointer; }
+
+/* Nav links */
+.nav-links { display: flex; gap: 4px; }
+.nav-links a { padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; text-decoration: none; color: #888; border: 1px solid #3a3d4a; }
+.nav-links a.active { background: #f7a75b; color: #0f1117; border-color: #f7a75b; }
+.nav-links a:hover:not(.active) { background: #252832; color: #e0e0e0; }
+
+/* Main layout */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* Side panel */
+#sidebar { width: 380px; min-width: 380px; background: #1a1d27; border-right: 1px solid #2a2d3a; overflow-y: auto; display: flex; flex-direction: column; }
+.panel { padding: 14px; border-bottom: 1px solid #2a2d3a; }
+.panel h2 { font-size: 13px; font-weight: 600; color: #f7a75b; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+
+/* Search results */
+.search-item { padding: 6px 8px; cursor: pointer; border-radius: 4px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.search-item:hover { background: #252832; }
+.badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.badge-clinic { background: #1e3a5f; color: #5b9ef7; }
+.badge-lead { background: #5f3a1e; color: #f7a75b; }
+
+/* Node details */
+#node-details { display: none; }
+.detail-row { font-size: 13px; margin-bottom: 4px; }
+.detail-label { color: #888; }
+.detail-link { color: #8b9cf7; font-size: 12px; text-decoration: none; }
+.detail-link:hover { text-decoration: underline; }
+.spec-tag { display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 10px; font-size: 11px; background: #2a2040; color: #b89cf7; }
+.role-tag { display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 10px; font-size: 11px; background: #3a2a10; color: #f7c95b; }
+
+/* Pathfinding */
+#pathfind-panel .input-group { margin-bottom: 8px; }
+#pathfind-panel label { font-size: 12px; color: #888; display: block; margin-bottom: 3px; }
+#pathfind-panel input, #pathfind-panel select { width: 100%; padding: 6px 10px; border: 1px solid #3a3d4a; border-radius: 4px; background: #252832; color: #e0e0e0; font-size: 13px; outline: none; }
+#pathfind-panel input:focus { border-color: #f7a75b; }
+.autocomplete-list { position: absolute; background: #252832; border: 1px solid #3a3d4a; border-radius: 4px; max-height: 160px; overflow-y: auto; z-index: 10; width: calc(100% - 28px); }
+.autocomplete-item { padding: 6px 10px; cursor: pointer; font-size: 13px; }
+.autocomplete-item:hover { background: #3a3d4a; }
+.input-group { position: relative; }
+#btn-pathfind { width: 100%; padding: 8px; background: #f7a75b; color: #0f1117; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 13px; }
+#btn-pathfind:hover { background: #f7c07a; }
+#btn-pathfind:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Path results */
+.path-item { padding: 8px; margin-bottom: 6px; border-radius: 4px; background: #252832; cursor: pointer; font-size: 12px; }
+.path-item:hover { background: #2a2d3a; }
+.path-item.active { border-left: 3px solid #f7c95b; }
+.path-node { display: inline-block; padding: 1px 6px; margin: 1px; border-radius: 3px; font-size: 11px; }
+.path-node-clinic { background: #1e3a5f; color: #5b9ef7; }
+.path-node-lead { background: #5f3a1e; color: #f7a75b; }
+.path-arrow { color: #555; margin: 0 2px; }
+
+/* Graph canvas */
+#cy { flex: 1; background: #0f1117; position: relative; }
+
+/* Loading */
+#loading { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1d27; padding: 20px 30px; border-radius: 8px; border: 1px solid #2a2d3a; z-index: 100; }
+
+/* K selector */
+.k-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.k-row label { flex-shrink: 0; }
+.k-row select { flex: 1; }
+
+/* Random lead panel */
+.random-row { display: flex; gap: 8px; align-items: center; }
+.random-row select { width: 60px; padding: 5px; border: 1px solid #3a3d4a; border-radius: 4px; background: #252832; color: #e0e0e0; font-size: 12px; }
+#btn-random { padding: 6px 14px; background: #f7a75b; color: #0f1117; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 12px; white-space: nowrap; }
+#btn-random:hover { background: #f7c07a; }
+
+/* People list in details */
+.people-section { margin-top: 10px; }
+.people-section h4 { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+.person-card { padding: 6px 8px; margin-bottom: 4px; background: #252832; border-radius: 4px; font-size: 12px; border-left: 3px solid #3a3d4a; }
+.person-card.has-linkedin { border-left-color: #5b9ef7; }
+.person-card.has-contact { border-left-color: #5bf7a7; }
+.person-name { font-weight: 600; color: #e0e0e0; }
+.person-role { color: #f7c95b; font-size: 11px; }
+.person-meta { color: #888; font-size: 11px; margin-top: 2px; }
+.person-meta a { color: #8b9cf7; text-decoration: none; }
+.person-meta a:hover { text-decoration: underline; }
+
+/* Tooltip */
+#tooltip { display: none; position: fixed; background: #1a1d27; border: 1px solid #f7a75b; border-radius: 6px; padding: 8px 12px; font-size: 12px; z-index: 200; pointer-events: none; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+#tooltip .tt-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+#tooltip .tt-type { color: #888; font-size: 11px; }
+#tooltip .tt-contact { margin-top: 4px; font-size: 11px; }
+#tooltip .tt-contact div { margin-bottom: 2px; }
+#tooltip .tt-contact .label { color: #888; }
+#tooltip .tt-contact .value { color: #e0e0e0; }
+#tooltip .tt-specs { margin-top: 4px; }
+#tooltip .tt-specs span { display: inline-block; padding: 1px 6px; margin: 1px; border-radius: 8px; font-size: 10px; background: #2a2040; color: #b89cf7; }
+#tooltip .tt-locations { color: #f7c95b; font-size: 11px; margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+    <div class="nav-links">
+        <a href="/">Doctors</a>
+        <a href="/leads" class="active">Leads</a>
+    </div>
+    <h1>Lead-Clinic Network</h1>
+    <input type="text" id="search-box" placeholder="Search ICP clinics or leads..." autocomplete="off">
+    <button class="topbar-btn" id="btn-clear" title="Clear graph and reset view">Clear</button>
+    <label class="topbar-check" title="Merge clinics with the same NIP (tax ID) into one node">
+        <input type="checkbox" id="chk-merge-nip"> Merge by NIP
+    </label>
+    <span id="stats">Loading...</span>
+</div>
+
+<div id="main">
+    <div id="sidebar">
+        <!-- Random lead explorer -->
+        <div class="panel">
+            <h2>Explore Connected Leads</h2>
+            <div class="random-row">
+                <label style="font-size:12px;color:#888">Min clinics:</label>
+                <select id="random-min">
+                    <option value="2">2+</option>
+                    <option value="3" selected>3+</option>
+                    <option value="5">5+</option>
+                    <option value="8">8+</option>
+                    <option value="10">10+</option>
+                </select>
+                <button id="btn-random">Random Lead</button>
+            </div>
+        </div>
+
+        <!-- Search results -->
+        <div class="panel" id="search-results" style="display:none">
+            <h2>Search Results</h2>
+            <div id="search-list"></div>
+        </div>
+
+        <!-- Node details -->
+        <div class="panel" id="node-details">
+            <h2>Node Details</h2>
+            <div id="detail-content"></div>
+        </div>
+
+        <!-- Pathfinding -->
+        <div class="panel" id="pathfind-panel">
+            <h2>Pathfinding (via Leads)</h2>
+            <div class="input-group">
+                <label>From Clinic</label>
+                <input type="text" id="pf-from" placeholder="Search ICP clinic..." autocomplete="off">
+                <div class="autocomplete-list" id="ac-from" style="display:none"></div>
+            </div>
+            <div class="input-group">
+                <label>To Clinic</label>
+                <input type="text" id="pf-to" placeholder="Search ICP clinic..." autocomplete="off">
+                <div class="autocomplete-list" id="ac-to" style="display:none"></div>
+            </div>
+            <div class="k-row">
+                <label style="font-size:12px;color:#888">Paths:</label>
+                <select id="pf-k">
+                    <option value="3">3</option>
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                </select>
+            </div>
+            <button id="btn-pathfind" disabled>Find Paths</button>
+            <div id="path-results" style="margin-top:10px"></div>
+        </div>
+    </div>
+
+    <div id="cy"></div>
+</div>
+
+<div id="loading">Loading graph...</div>
+<div id="tooltip"></div>
+
+<script>
+const API = '/api/leads';
+let cy;
+let fromClinicId = null;
+let toClinicId = null;
+let currentPaths = [];
+const PATH_COLORS = ['#f7c95b','#f77c5b','#5bf7a7','#5b9ef7','#f75ba7','#a75bf7','#5bf7e0','#f7f75b','#f75b5b','#5b5bf7',
+                      '#c9f75b','#5bf7c9','#f7a75b','#a7f75b','#f75be0','#5bc9f7','#e0f75b','#5bf75b','#f75bc9','#c95bf7'];
+
+function isMergeNip() {
+    return document.getElementById('chk-merge-nip').checked;
+}
+
+function mergeParam() {
+    return isMergeNip() ? '&merge_nip=true' : '';
+}
+
+function mergeParamFirst() {
+    return isMergeNip() ? '?merge_nip=true' : '';
+}
+
+// ── Cytoscape init ──
+function initCy() {
+    cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+            { selector: 'node[type="clinic"]', style: {
+                'shape': 'round-rectangle', 'background-color': '#2a5a9f',
+                'label': 'data(short_label)', 'color': '#ccc', 'font-size': '10px',
+                'text-valign': 'bottom', 'text-margin-y': 4,
+                'width': 'mapData(leads_count, 1, 20, 25, 60)',
+                'height': 'mapData(leads_count, 1, 20, 25, 60)',
+                'border-width': 1, 'border-color': '#5b9ef7',
+                'text-max-width': '100px', 'text-wrap': 'ellipsis',
+            }},
+            { selector: 'node[type="lead"]', style: {
+                'shape': 'ellipse', 'background-color': '#7a5a2a',
+                'label': 'data(short_label)', 'color': '#ccc', 'font-size': '9px',
+                'text-valign': 'bottom', 'text-margin-y': 4,
+                'width': 20, 'height': 20,
+                'border-width': 1, 'border-color': '#f7a75b',
+                'text-max-width': '80px', 'text-wrap': 'ellipsis',
+            }},
+            { selector: 'edge', style: {
+                'line-color': '#333', 'width': 1, 'curve-style': 'bezier', 'opacity': 0.5,
+            }},
+            { selector: 'node:selected', style: {
+                'border-color': '#f7c95b', 'border-width': 3,
+            }},
+            { selector: '.path-highlight', style: {
+                'opacity': 1, 'z-index': 10,
+            }},
+            { selector: '.dimmed', style: {
+                'opacity': 0.15,
+            }},
+            // leads with contact info get a brighter border
+            { selector: 'node[has_contact="yes"]', style: {
+                'border-color': '#f7c95b', 'border-width': 2,
+            }},
+        ],
+        layout: { name: 'preset' },
+        minZoom: 0.1, maxZoom: 5,
+    });
+
+    cy.on('tap', 'node', async (e) => {
+        const node = e.target;
+        const type = node.data('type');
+        const rawId = node.data('raw_id');
+        await loadNodeDetails(type, rawId);
+    });
+
+    cy.on('dbltap', 'node', async (e) => {
+        const node = e.target;
+        const type = node.data('type');
+        const rawId = node.data('raw_id');
+        await loadNeighborhood(type, rawId, 2);
+    });
+
+    // ── Hover tooltip ──
+    const tooltip = document.getElementById('tooltip');
+
+    cy.on('mouseover', 'node', (e) => {
+        const node = e.target;
+        const d = node.data();
+        const type = d.type;
+
+        let html = `<div class="tt-name" style="color:${type === 'clinic' ? '#5b9ef7' : '#f7a75b'}">${esc(d.label)}</div>`;
+
+        if (type === 'clinic') {
+            html += `<div class="tt-type">ICP Clinic`;
+            if (d.doctors_count) html += ` · ${d.doctors_count} doctors`;
+            html += '</div>';
+            if (d.locations_count > 1) {
+                html += `<div class="tt-locations">${d.locations_count} locations (merged by NIP)</div>`;
+            }
+            if (d.website) html += `<div class="tt-contact"><div><span class="label">Web:</span> <span class="value">${esc(d.website)}</span></div></div>`;
+            if (d.specializations_str) {
+                html += '<div class="tt-specs">';
+                for (const s of d.specializations_str.split(', ').filter(Boolean)) html += `<span>${esc(s)}</span>`;
+                html += '</div>';
+            }
+        } else {
+            html += `<div class="tt-type">Lead`;
+            if (d.lead_source) html += ` · ${esc(d.lead_source)}`;
+            html += '</div>';
+            html += '<div class="tt-contact">';
+            if (d.phone) html += `<div><span class="label">Phone:</span> <span class="value">${esc(d.phone)}</span></div>`;
+            if (d.email) html += `<div><span class="label">Email:</span> <span class="value">${esc(d.email)}</span></div>`;
+            if (d.linkedin_url) html += `<div><span class="label">LinkedIn:</span> <span class="value">${esc(d.linkedin_url)}</span></div>`;
+            if (!d.phone && !d.email && !d.linkedin_url) html += `<div style="color:#666">No contact info</div>`;
+            html += '</div>';
+        }
+
+        tooltip.innerHTML = html;
+        tooltip.style.display = 'block';
+    });
+
+    cy.on('mousemove', 'node', (e) => {
+        const pos = e.originalEvent;
+        tooltip.style.left = (pos.clientX + 14) + 'px';
+        tooltip.style.top = (pos.clientY + 14) + 'px';
+    });
+
+    cy.on('mouseout', 'node', () => {
+        tooltip.style.display = 'none';
+    });
+}
+
+// ── API helpers ──
+async function apiFetch(path) {
+    const res = await fetch(`${API}${path}`);
+    return res.json();
+}
+
+// ── Search ──
+let searchTimeout;
+const searchBox = document.getElementById('search-box');
+const searchResults = document.getElementById('search-results');
+const searchList = document.getElementById('search-list');
+
+searchBox.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = searchBox.value.trim();
+    if (q.length < 2) { searchResults.style.display = 'none'; return; }
+    searchTimeout = setTimeout(() => doSearch(q), 300);
+});
+
+async function doSearch(q) {
+    const data = await apiFetch(`/search?q=${encodeURIComponent(q)}`);
+    searchList.innerHTML = '';
+    searchResults.style.display = 'block';
+
+    for (const c of data.clinics) {
+        const el = document.createElement('div');
+        el.className = 'search-item';
+        el.innerHTML = `<span class="badge badge-clinic">C</span> ${esc(c.name)}`;
+        el.onclick = () => { loadNeighborhood('clinic', c.id, 2); };
+        searchList.appendChild(el);
+    }
+    for (const l of data.leads) {
+        const el = document.createElement('div');
+        el.className = 'search-item';
+        el.innerHTML = `<span class="badge badge-lead">L</span> ${esc(l.full_name)}`;
+        el.onclick = () => { loadNeighborhood('lead', l.id, 2); };
+        searchList.appendChild(el);
+    }
+
+    if (!data.clinics.length && !data.leads.length) {
+        searchList.innerHTML = '<div style="padding:8px;color:#666;font-size:13px">No results</div>';
+    }
+}
+
+// ── Load neighborhood ──
+async function loadNeighborhood(type, id, depth) {
+    showLoading(true);
+    const data = await apiFetch(`/neighbors/${type}/${id}?depth=${depth}${mergeParam()}`);
+    addToGraph(data.nodes, data.edges);
+    showLoading(false);
+
+    if (data.truncated) {
+        console.warn('Neighborhood was truncated to 500 nodes');
+    }
+}
+
+// ── Load node details ──
+async function loadNodeDetails(type, rawId) {
+    const data = await apiFetch(`/node/${type}/${rawId}${mergeParamFirst()}`);
+    if (data.error) return;
+
+    const details = data.details;
+    const panel = document.getElementById('node-details');
+    const content = document.getElementById('detail-content');
+    panel.style.display = 'block';
+
+    let html = '';
+    if (type === 'clinic') {
+        html += `<h3 style="color:#5b9ef7">${esc(details.name || 'Unknown')}</h3>`;
+        if (details.leads_count) html += `<div class="detail-row"><span class="detail-label">Leads:</span> ${details.leads_count}</div>`;
+        if (details.doctors_count) html += `<div class="detail-row"><span class="detail-label">Doctors:</span> ${details.doctors_count}</div>`;
+        if (details.legal_name) html += `<div class="detail-row"><span class="detail-label">Legal:</span> ${esc(details.legal_name)}</div>`;
+        if (details.nip) html += `<div class="detail-row"><span class="detail-label">NIP:</span> ${details.nip}</div>`;
+        if (details.website_domain) html += `<div class="detail-row"><span class="detail-label">Website:</span> ${esc(details.website_domain)}</div>`;
+        if (details.linkedin_url) html += `<div class="detail-row"><a href="${esc(details.linkedin_url)}" target="_blank" class="detail-link">LinkedIn</a></div>`;
+        if (details.zl_url) html += `<div class="detail-row"><a href="${esc(details.zl_url)}" target="_blank" class="detail-link">ZnanyLekarz profile</a></div>`;
+        if (details.locations && details.locations.length) {
+            html += '<div class="detail-row" style="margin-top:6px"><span class="detail-label">Locations:</span></div>';
+            for (const loc of details.locations) {
+                if (loc.address) html += `<div class="detail-row" style="padding-left:8px;font-size:12px">${esc(loc.address)}</div>`;
+            }
+        }
+        if (details.specializations && details.specializations.length) {
+            html += '<div style="margin-top:6px">';
+            for (const s of details.specializations) html += `<span class="spec-tag">${esc(s)}</span>`;
+            html += '</div>';
+        }
+
+        // LinkedIn people (leads tied to this clinic)
+        if (details.linkedin_people && details.linkedin_people.length) {
+            html += '<div class="people-section"><h4>People / Leads (' + details.linkedin_people.length + ')</h4>';
+            for (const p of details.linkedin_people) {
+                const hasLi = p.linkedin_url && p.linkedin_url !== '';
+                const hasCt = p.phone || p.email;
+                const cls = hasLi ? 'has-linkedin' : (hasCt ? 'has-contact' : '');
+                html += `<div class="person-card ${cls}">`;
+                html += `<div class="person-name">${esc(p.full_name)}</div>`;
+                if (p.role) html += `<div class="person-role">${esc(p.role)}</div>`;
+                if (p.headline) html += `<div class="person-meta">${esc(p.headline)}</div>`;
+                if (p.position && p.company) html += `<div class="person-meta">${esc(p.position)} at ${esc(p.company)}</div>`;
+                let contactParts = [];
+                if (p.phone) contactParts.push(esc(p.phone));
+                if (p.email) contactParts.push(esc(p.email));
+                if (p.linkedin_url) contactParts.push(`<a href="${esc(p.linkedin_url)}" target="_blank">LinkedIn</a>`);
+                if (contactParts.length) html += `<div class="person-meta">${contactParts.join(' · ')}</div>`;
+                if (p.review_status) html += `<div class="person-meta" style="color:#666">LI status: ${esc(p.review_status)}</div>`;
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        // Board members (from KRS/CEIDG — may not be leads)
+        if (details.board_members && details.board_members.length) {
+            html += '<div class="people-section"><h4>Board Members / Owners (' + details.board_members.length + ')</h4>';
+            for (const bm of details.board_members) {
+                html += `<div class="person-card">`;
+                html += `<div class="person-name">${esc(bm.full_name)}</div>`;
+                html += `<div class="person-role">${esc(bm.role)}</div>`;
+                html += `<div class="person-meta" style="color:#666">${esc(bm.source)}</div>`;
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+    } else {
+        html += `<h3 style="color:#f7a75b">${esc(details.full_name || 'Unknown')}</h3>`;
+        if (details.lead_source) html += `<div class="detail-row"><span class="detail-label">Source:</span> ${esc(details.lead_source)}</div>`;
+        if (details.enrichment_status) html += `<div class="detail-row"><span class="detail-label">Status:</span> ${esc(details.enrichment_status)}</div>`;
+
+        html += '<div style="margin-top:8px;padding:8px;background:#252832;border-radius:4px">';
+        html += '<div style="font-size:11px;color:#888;margin-bottom:4px">CONTACT INFO</div>';
+        if (details.phone) html += `<div class="detail-row"><span class="detail-label">Phone:</span> ${esc(details.phone)} <span style="color:#666;font-size:11px">(${esc(details.phone_source || '?')})</span></div>`;
+        if (details.email) html += `<div class="detail-row"><span class="detail-label">Email:</span> ${esc(details.email)}</div>`;
+        if (details.linkedin_url) html += `<div class="detail-row"><a href="${esc(details.linkedin_url)}" target="_blank" class="detail-link">LinkedIn Profile</a></div>`;
+        if (!details.phone && !details.email && !details.linkedin_url) html += '<div class="detail-row" style="color:#666">No contact info found</div>';
+        html += '</div>';
+
+        if (details.linkedin_profile) {
+            const lp = details.linkedin_profile;
+            html += '<div style="margin-top:8px;padding:8px;background:#252832;border-radius:4px">';
+            html += '<div style="font-size:11px;color:#888;margin-bottom:4px">LINKEDIN PROFILE</div>';
+            if (lp.headline) html += `<div class="detail-row">${esc(lp.headline)}</div>`;
+            if (lp.position && lp.company) html += `<div class="detail-row"><span class="detail-label">Position:</span> ${esc(lp.position)} at ${esc(lp.company)}</div>`;
+            if (lp.location) html += `<div class="detail-row"><span class="detail-label">Location:</span> ${esc(lp.location)}</div>`;
+            html += '</div>';
+        }
+
+        if (details.clinic_roles && details.clinic_roles.length) {
+            html += '<div style="margin-top:8px"><span class="detail-label" style="font-size:12px">Roles at clinics:</span></div>';
+            for (const cr of details.clinic_roles) {
+                html += `<div class="detail-row" style="padding-left:8px;font-size:12px"><span class="role-tag">${esc(cr.role)}</span> ${esc(cr.clinic_name)}</div>`;
+            }
+        }
+    }
+    content.innerHTML = html;
+
+    // add neighborhood to graph
+    addToGraph(data.neighborhood.nodes, data.neighborhood.edges);
+}
+
+// ── Graph manipulation ──
+function truncateLabel(s, max) {
+    if (!s) return '';
+    return s.length > max ? s.substring(0, max) + '...' : s;
+}
+
+function addToGraph(nodes, edges) {
+    const elements = [];
+
+    for (const n of nodes) {
+        if (!cy.getElementById(n.id).length) {
+            const hasContact = n.phone || n.email || n.linkedin_url;
+            elements.push({
+                group: 'nodes',
+                data: {
+                    id: n.id,
+                    label: n.label || n.id,
+                    short_label: truncateLabel(n.label || n.id, 25),
+                    type: n.type,
+                    raw_id: n.raw_id,
+                    doctors_count: n.doctors_count || 1,
+                    leads_count: n.leads_count || 1,
+                    specializations_str: (n.specializations || []).join(', '),
+                    locations_count: n.locations_count || 0,
+                    website: n.website || '',
+                    linkedin: n.linkedin || '',
+                    // lead-specific
+                    phone: n.phone || '',
+                    email: n.email || '',
+                    linkedin_url: n.linkedin_url || '',
+                    lead_source: n.lead_source || '',
+                    has_contact: hasContact ? 'yes' : 'no',
+                },
+            });
+        }
+    }
+
+    for (const e of edges) {
+        // normalize edge ID so c_1-l_2 and l_2-c_1 are the same edge
+        const pair = [e.source, e.target].sort();
+        const edgeId = `${pair[0]}-${pair[1]}`;
+        if (!cy.getElementById(edgeId).length) {
+            elements.push({
+                group: 'edges',
+                data: { id: edgeId, source: e.source, target: e.target },
+            });
+        }
+    }
+
+    if (elements.length) {
+        cy.add(elements);
+        cy.layout({
+            name: 'cose-bilkent',
+            animate: true,
+            animationDuration: 500,
+            nodeRepulsion: 8000,
+            idealEdgeLength: 80,
+            edgeElasticity: 0.1,
+            gravity: 0.25,
+            numIter: 500,
+            tile: true,
+            fit: true,
+            padding: 40,
+        }).run();
+    }
+}
+
+function clearGraph() {
+    cy.elements().remove();
+}
+
+function resetAll() {
+    clearGraph();
+    currentPaths = [];
+    fromClinicId = null;
+    toClinicId = null;
+    document.getElementById('pf-from').value = '';
+    document.getElementById('pf-to').value = '';
+    document.getElementById('path-results').innerHTML = '';
+    document.getElementById('node-details').style.display = 'none';
+    document.getElementById('search-results').style.display = 'none';
+    document.getElementById('search-box').value = '';
+    document.getElementById('btn-pathfind').disabled = true;
+}
+
+// ── Clear button ──
+document.getElementById('btn-clear').addEventListener('click', resetAll);
+
+// ── Random lead button ──
+document.getElementById('btn-random').addEventListener('click', async () => {
+    const minConn = document.getElementById('random-min').value;
+    showLoading(true);
+    const data = await apiFetch(`/random?min_connections=${minConn}${mergeParam()}`);
+    showLoading(false);
+
+    if (data.error) {
+        alert(data.error);
+        return;
+    }
+
+    clearGraph();
+    addToGraph(data.neighborhood.nodes, data.neighborhood.edges);
+
+    // auto-select the lead node to show details
+    setTimeout(() => loadNodeDetails('lead', data.lead_id), 500);
+});
+
+// ── Merge NIP checkbox ──
+document.getElementById('chk-merge-nip').addEventListener('change', () => {
+    resetAll();
+    loadStats();
+});
+
+// ── Pathfinding ──
+const pfFrom = document.getElementById('pf-from');
+const pfTo = document.getElementById('pf-to');
+const acFrom = document.getElementById('ac-from');
+const acTo = document.getElementById('ac-to');
+const btnPathfind = document.getElementById('btn-pathfind');
+const pathResults = document.getElementById('path-results');
+
+function setupAutocomplete(input, dropdown, onSelect) {
+    let timeout;
+    input.addEventListener('input', () => {
+        clearTimeout(timeout);
+        const q = input.value.trim();
+        if (q.length < 2) { dropdown.style.display = 'none'; return; }
+        timeout = setTimeout(async () => {
+            const data = await apiFetch(`/search?q=${encodeURIComponent(q)}`);
+            dropdown.innerHTML = '';
+            for (const c of data.clinics) {
+                const el = document.createElement('div');
+                el.className = 'autocomplete-item';
+                el.textContent = c.name;
+                el.onclick = () => {
+                    input.value = c.name;
+                    dropdown.style.display = 'none';
+                    onSelect(c.id);
+                };
+                dropdown.appendChild(el);
+            }
+            dropdown.style.display = data.clinics.length ? 'block' : 'none';
+        }, 300);
+    });
+
+    input.addEventListener('blur', () => { setTimeout(() => dropdown.style.display = 'none', 200); });
+}
+
+setupAutocomplete(pfFrom, acFrom, (id) => { fromClinicId = id; updatePathfindBtn(); });
+setupAutocomplete(pfTo, acTo, (id) => { toClinicId = id; updatePathfindBtn(); });
+
+function updatePathfindBtn() {
+    btnPathfind.disabled = !(fromClinicId && toClinicId);
+}
+
+btnPathfind.addEventListener('click', async () => {
+    if (!fromClinicId || !toClinicId) return;
+    btnPathfind.disabled = true;
+    btnPathfind.textContent = 'Searching...';
+    const k = document.getElementById('pf-k').value;
+
+    const data = await apiFetch(`/pathfind?from_clinic=${fromClinicId}&to_clinic=${toClinicId}&k=${k}${mergeParam()}`);
+
+    btnPathfind.disabled = false;
+    btnPathfind.textContent = 'Find Paths';
+    currentPaths = data.paths || [];
+
+    if (data.error) {
+        pathResults.innerHTML = `<div style="color:#f75b5b;font-size:13px;padding:8px">${esc(data.error)}</div>`;
+        return;
+    }
+
+    if (!currentPaths.length) {
+        pathResults.innerHTML = '<div style="color:#888;font-size:13px;padding:8px">No paths found — clinics may be in disconnected components.</div>';
+        return;
+    }
+
+    // render all path nodes on graph
+    clearGraph();
+    const allNodes = [];
+    const allEdges = [];
+    const seen = new Set();
+
+    for (const path of currentPaths) {
+        for (let i = 0; i < path.length; i++) {
+            const n = path[i];
+            if (!seen.has(n.id)) {
+                seen.add(n.id);
+                allNodes.push({
+                    id: n.id, type: n.type, raw_id: n.raw_id,
+                    label: n.label, doctors_count: 1, leads_count: 1,
+                    specializations: (n.specializations || []),
+                    locations_count: n.locations_count || 0,
+                    phone: n.phone || '',
+                    email: n.email || '',
+                    linkedin_url: n.linkedin_url || '',
+                });
+            }
+            if (i < path.length - 1) {
+                allEdges.push({ source: n.id, target: path[i + 1].id });
+            }
+        }
+    }
+    addToGraph(allNodes, allEdges);
+
+    // render path list
+    pathResults.innerHTML = `<div style="font-size:12px;color:#888;margin-bottom:6px">${currentPaths.length} path(s) found</div>`;
+    currentPaths.forEach((path, idx) => {
+        const el = document.createElement('div');
+        el.className = 'path-item';
+        const color = PATH_COLORS[idx % PATH_COLORS.length];
+        el.style.borderLeft = `3px solid ${color}`;
+
+        let html = `<div style="font-size:11px;color:#888;margin-bottom:3px">Path ${idx + 1} (${path.length} nodes, ${Math.floor(path.length / 2)} hops)</div>`;
+        html += path.map(n =>
+            `<span class="path-node path-node-${n.type}">${esc(n.label)}</span>`
+        ).join('<span class="path-arrow">&rarr;</span>');
+
+        el.innerHTML = html;
+        el.onclick = () => highlightPath(idx);
+        pathResults.appendChild(el);
+    });
+
+    // highlight first path
+    highlightPath(0);
+});
+
+function highlightPath(idx) {
+    cy.elements().removeClass('path-highlight dimmed');
+    document.querySelectorAll('.path-item').forEach(el => el.classList.remove('active'));
+
+    if (idx < 0 || idx >= currentPaths.length) return;
+
+    const path = currentPaths[idx];
+    const color = PATH_COLORS[idx % PATH_COLORS.length];
+
+    cy.elements().addClass('dimmed');
+
+    for (let i = 0; i < path.length; i++) {
+        const node = cy.getElementById(path[i].id);
+        node.removeClass('dimmed').addClass('path-highlight');
+        node.style('border-color', color);
+        node.style('border-width', 3);
+
+        if (i < path.length - 1) {
+            const pair = [path[i].id, path[i + 1].id].sort();
+            const edgeId = `${pair[0]}-${pair[1]}`;
+            const edge = cy.getElementById(edgeId);
+            if (edge.length) {
+                edge.removeClass('dimmed').addClass('path-highlight');
+                edge.style('line-color', color);
+                edge.style('width', 3);
+            }
+        }
+    }
+
+    const items = document.querySelectorAll('.path-item');
+    if (items[idx]) items[idx].classList.add('active');
+}
+
+// ── Stats ──
+async function loadStats() {
+    const data = await apiFetch(`/stats${mergeParamFirst()}`);
+    document.getElementById('stats').textContent =
+        `${data.clinics.toLocaleString()} ICP clinics · ${data.leads.toLocaleString()} leads · ${data.edges.toLocaleString()} connections`;
+}
+
+// ── Utilities ──
+function esc(s) {
+    if (!s) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+function showLoading(show) {
+    document.getElementById('loading').style.display = show ? 'block' : 'none';
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', () => {
+    initCy();
+    loadStats();
+});
+</script>
+</body>
+</html>

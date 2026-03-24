@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -16,7 +17,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, relationship
-
 
 class Base(DeclarativeBase):
     pass
@@ -28,6 +28,17 @@ clinic_doctors = Table(
     Base.metadata,
     Column("clinic_id", Integer, ForeignKey("clinics.id", ondelete="CASCADE"), primary_key=True),
     Column("doctor_id", Integer, ForeignKey("doctors.id", ondelete="CASCADE"), primary_key=True),
+    Column("booking_ratio", Float, nullable=True),
+    Column("is_bookable", Boolean, nullable=True),
+)
+
+# M2M association table: doctors <-> specializations
+doctor_specializations = Table(
+    "doctor_specializations",
+    Base.metadata,
+    Column("doctor_id", Integer, ForeignKey("doctors.id", ondelete="CASCADE"), primary_key=True),
+    Column("specialization_id", Integer, ForeignKey("specializations.id", ondelete="CASCADE"), primary_key=True),
+    Column("is_in_progress", Boolean, nullable=False, default=False),
 )
 
 # M2M association table: leads <-> clinics (with role)
@@ -97,8 +108,9 @@ class Clinic(Base):
     employees = relationship("Employee", back_populates="clinic", cascade="all, delete-orphan")
     leads = relationship("Lead", secondary=lead_clinic_roles, back_populates="clinics")
 
-    # Employee scraping checkpoint
+    # Scraping checkpoints
     employees_scraped_at = Column(DateTime, nullable=True)
+    doctors_refetched_at = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Clinic(id={self.id}, name='{self.name}', zl_url='{self.zl_url}')>"
@@ -135,8 +147,14 @@ class Doctor(Base):
     name = Column(String(256), nullable=True)
     surname = Column(String(256), nullable=True)
     zl_url = Column(String(512), nullable=True)
+    gender = Column(SmallInteger, nullable=True)  # 1=male, 0=female, None=unknown
+    img_url = Column(String(1024), nullable=True)
+    opinions_positive = Column(Integer, nullable=True)
+    opinions_neutral = Column(Integer, nullable=True)
+    opinions_negative = Column(Integer, nullable=True)
 
     clinics = relationship("Clinic", secondary=clinic_doctors, back_populates="doctors")
+    specializations = relationship("Specialization", secondary=doctor_specializations, backref="doctors")
 
     def __repr__(self) -> str:
         return f"<Doctor(id={self.id}, name='{self.name} {self.surname}')>"

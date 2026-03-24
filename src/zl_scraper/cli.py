@@ -76,6 +76,22 @@ def enrich(
     console.print("[green]Enrichment complete.[/green]")
 
 
+# ── refetch-doctors ───────────────────────────────────────────────────────
+
+
+@app.command(rich_help_panel="Scraping")
+def refetch_doctors(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to refetch"),
+    proxy_level: str = typer.Option("datacenter", "--proxy-level", help="Starting proxy tier: datacenter, residential, unlocker, or none"),
+    concurrency: Optional[int] = typer.Option(None, "--concurrency", help="Override default concurrency"),
+) -> None:
+    """Re-fetch doctors from clinic pages to backfill specializations, opinions, gender, etc."""
+    from zl_scraper.pipeline.refetch_doctors import run_refetch_doctors
+
+    asyncio.run(run_refetch_doctors(limit=limit, start_tier=proxy_level, concurrency=concurrency))
+    console.print("[green]Doctor refetch complete.[/green]")
+
+
 # ── status ───────────────────────────────────────────────────────────────
 
 

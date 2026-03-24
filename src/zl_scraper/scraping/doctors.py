@@ -25,7 +25,10 @@ async def fetch_doctors(
     url = DOCTORS_URL_TEMPLATE.format(profile_id=profile_id)
     try:
         response = await client.fetch(url, semaphore)
-        return parse_doctors_response(response.text)
+        tier = getattr(response, "_proxy_tier", "unknown")
+        doctors = parse_doctors_response(response.text)
+        logger.info("profile_id=%s — %d doctors fetched (tier=%s)", profile_id, len(doctors), tier)
+        return doctors
     except httpx.HTTPError as e:
         logger.error("Failed to fetch doctors for profile_id=%s: %s", profile_id, e)
-        return []
+        raise
