@@ -143,21 +143,36 @@ def get_neighbors(
 @router.get("/pathfind")
 def pathfind(
     request: Request,
-    from_clinic: int = Query(...),
+    from_clinic: str = Query(..., description="Comma-separated clinic IDs"),
     to_clinic: int = Query(...),
     k: int = Query(default=5, ge=1, le=20),
     merge_nip: bool = Query(default=False),
     db: Session = Depends(_get_db),
 ):
-    """Find k diverse shortest paths between two clinics."""
+    """Find k diverse shortest paths between clinic(s) and a target clinic."""
     c2d, d2c = _graph(request, merge_nip)
 
-    if from_clinic not in c2d:
-        return {"error": f"Clinic {from_clinic} not found in graph"}
+    from_ids = []
+    for s in from_clinic.split(","):
+        s = s.strip()
+        if s.isdigit():
+            from_ids.append(int(s))
+
+    if not from_ids:
+        return {"error": "No valid from_clinic IDs provided"}
+
+    for cid in from_ids:
+        if cid not in c2d:
+            return {"error": f"Clinic {cid} not found in graph"}
     if to_clinic not in c2d:
         return {"error": f"Clinic {to_clinic} not found in graph"}
 
-    raw_paths = yen_k_shortest_paths(c2d, d2c, from_clinic, to_clinic, k=k)
+    # Run pathfinding from each start clinic, merge and sort by length
+    raw_paths = []
+    for fid in from_ids:
+        raw_paths.extend(yen_k_shortest_paths(c2d, d2c, fid, to_clinic, k=k))
+    raw_paths.sort(key=len)
+    raw_paths = raw_paths[:k]
 
     # collect all node IDs for batch metadata fetch
     all_clinic_ids: set[int] = set()
@@ -241,7 +256,7 @@ def find_by_spec(
     )
 
     result = find_doctors_by_specialization(
-        c2d, d2c, from_clinic, target_ids, doctor_specs_map, max_hops=hops,
+        c2d, d2c, [from_clinic], target_ids, doctor_specs_map, max_hops=hops,
     )
     logger.info("Spec search result: %d doctors found", len(result["results"]))
 

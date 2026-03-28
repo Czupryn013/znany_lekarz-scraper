@@ -3,7 +3,8 @@
     "allow": [
       "Bash(venv)",
       "Bash(find*)",
-      "Bash(wc -l src/zl_scraper/**/*.py)"
+      "Bash(wc -l src/zl_scraper/**/*.py)",
+      "Bash(grep *)"
     ]
   }
 }

@@ -10,24 +10,24 @@
 <script src="https://unpkg.com/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.js"></script>
 <style>
 :root {
-    --bg: #09090b;
-    --bg-card: #0c0c0f;
-    --bg-elevated: #131316;
-    --bg-input: #18181b;
-    --border: #27272a;
-    --border-hover: #3f3f46;
-    --text: #fafafa;
-    --text-muted: #a1a1aa;
-    --text-dim: #71717a;
+    --bg: #f8f9fb;
+    --bg-card: #ffffff;
+    --bg-elevated: #f1f3f5;
+    --bg-input: #ffffff;
+    --border: #e2e5e9;
+    --border-hover: #c9cdd3;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --text-dim: #9ca3af;
     --accent: #3b82f6;
-    --accent-hover: #60a5fa;
-    --accent-muted: rgba(59,130,246,0.12);
-    --green: #22c55e;
-    --green-muted: rgba(34,197,94,0.12);
+    --accent-hover: #2563eb;
+    --accent-muted: rgba(59,130,246,0.10);
+    --green: #16a34a;
+    --green-muted: rgba(22,163,74,0.10);
     --yellow: #eab308;
     --red: #ef4444;
-    --purple: #a78bfa;
-    --purple-muted: rgba(167,139,250,0.10);
+    --purple: #7c3aed;
+    --purple-muted: rgba(124,58,237,0.08);
     --radius: 8px;
     --radius-sm: 6px;
     --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -43,6 +43,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
     display: flex; align-items: center; gap: 10px; padding: 8px 14px;
     background: var(--bg-card); border-bottom: 1px solid var(--border);
     flex-wrap: wrap; z-index: 50;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 #topbar h1 { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; white-space: nowrap; }
 #search-box {
@@ -71,15 +72,35 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 .nav-links a.active { background: var(--accent); color: white; }
 .nav-links a:hover:not(.active) { background: var(--bg-elevated); color: var(--text); }
 
-/* Main layout */
+/* Main layout — three columns */
 #main { display: flex; flex: 1; overflow: hidden; }
 
-/* Sidebar */
+/* Left sidebar — tools */
 #sidebar {
-    width: 370px; min-width: 370px; background: var(--bg-card);
+    width: 340px; min-width: 340px; background: var(--bg-card);
     border-right: 1px solid var(--border); overflow-y: auto;
     display: flex; flex-direction: column;
 }
+
+/* Right panel — details */
+#right-panel {
+    width: 360px; min-width: 360px; background: var(--bg-card);
+    border-left: 1px solid var(--border); overflow-y: auto;
+    display: flex; flex-direction: column;
+}
+#right-panel .panel-header {
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; background: var(--bg-card); z-index: 2;
+}
+#right-panel .panel-header h2 { margin-bottom: 0; }
+#right-panel-content { padding: 14px; flex: 1; }
+.placeholder-msg {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 200px; color: var(--text-dim); font-size: 13px; text-align: center; gap: 8px;
+}
+.placeholder-msg .icon { font-size: 28px; opacity: 0.4; }
+
 .panel { padding: 14px; border-bottom: 1px solid var(--border); }
 .panel h2 {
     font-size: 11px; font-weight: 600; color: var(--text-dim);
@@ -101,7 +122,6 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 .badge-doctor { background: var(--green-muted); color: var(--green); }
 
 /* Node details */
-#node-details { display: none; }
 .detail-row { font-size: 13px; margin-bottom: 4px; }
 .detail-label { color: var(--text-dim); }
 .spec-tag {
@@ -109,14 +129,14 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
     font-size: 11px; background: var(--purple-muted); color: var(--purple); font-weight: 500;
 }
 .spec-tag.in-progress {
-    background: rgba(234,179,8,0.1); color: var(--yellow);
-    border: 1px dashed rgba(234,179,8,0.3);
+    background: rgba(234,179,8,0.08); color: #a16207;
+    border: 1px dashed rgba(234,179,8,0.4);
 }
 
 /* Reviews */
 .reviews-bar {
     display: flex; align-items: center; gap: 8px; margin-top: 6px;
-    padding: 8px 10px; background: var(--bg-input); border-radius: var(--radius-sm);
+    padding: 8px 10px; background: var(--bg-elevated); border-radius: var(--radius-sm);
     border: 1px solid var(--border);
 }
 .reviews-bar .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; display: flex; }
@@ -128,7 +148,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 /* Booking */
 .booking-row {
     display: flex; align-items: center; gap: 8px; padding: 5px 8px; margin-top: 3px;
-    background: var(--bg-input); border-radius: var(--radius-sm); font-size: 12px;
+    background: var(--bg-elevated); border-radius: var(--radius-sm); font-size: 12px;
     border: 1px solid var(--border);
 }
 .booking-bar { width: 50px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
@@ -144,12 +164,12 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 .panel label { font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 4px; font-weight: 500; }
 .input-group { position: relative; margin-bottom: 8px; }
 .autocomplete-list {
-    position: absolute; background: var(--bg-elevated); border: 1px solid var(--border);
+    position: absolute; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius-sm); max-height: 160px; overflow-y: auto;
-    z-index: 10; width: calc(100% - 0px); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 10; width: calc(100% - 0px); box-shadow: 0 8px 24px rgba(0,0,0,0.08);
 }
 .autocomplete-item { padding: 7px 10px; cursor: pointer; font-size: 13px; transition: background 0.1s; }
-.autocomplete-item:hover { background: var(--bg-input); }
+.autocomplete-item:hover { background: var(--bg-elevated); }
 
 /* Buttons */
 .btn-action {
@@ -178,14 +198,14 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 }
 .spec-result-item:hover { background: var(--bg-elevated); }
 .spec-result-item .hops {
-    font-size: 10px; color: var(--text-dim); background: var(--bg-input);
+    font-size: 10px; color: var(--text-dim); background: var(--bg-elevated);
     padding: 1px 6px; border-radius: 10px; border: 1px solid var(--border);
 }
 
 /* Path results */
 .path-item {
     padding: 8px; margin-bottom: 4px; border-radius: var(--radius-sm);
-    background: var(--bg-input); cursor: pointer; font-size: 12px;
+    background: var(--bg-elevated); cursor: pointer; font-size: 12px;
     border: 1px solid var(--border); transition: border-color 0.15s;
 }
 .path-item:hover { border-color: var(--border-hover); }
@@ -200,24 +220,29 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 .k-row label { flex-shrink: 0; margin-bottom: 0; }
 .k-row select { flex: 1; }
 
-/* Graph canvas */
-#cy { flex: 1; background: var(--bg); position: relative; }
+/* Graph canvas — dot grid */
+#cy {
+    flex: 1; position: relative;
+    background-color: #f4f6f8;
+    background-image: radial-gradient(circle, #d1d5db 1px, transparent 1px);
+    background-size: 20px 20px;
+}
 
 /* Loading */
 #loading {
     display: none; position: fixed; top: 50%; left: 50%;
-    transform: translate(-50%, -50%); background: var(--bg-elevated);
+    transform: translate(-50%, -50%); background: var(--bg-card);
     padding: 16px 28px; border-radius: var(--radius); border: 1px solid var(--border);
     z-index: 100; font-size: 13px; color: var(--text-muted);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.08);
 }
 
 /* Tooltip */
 #tooltip {
-    display: none; position: fixed; background: var(--bg-elevated);
+    display: none; position: fixed; background: var(--bg-card);
     border: 1px solid var(--border); border-radius: var(--radius);
     padding: 10px 14px; font-size: 12px; z-index: 200; pointer-events: none;
-    max-width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    max-width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,0.10);
 }
 #tooltip .tt-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; letter-spacing: -0.01em; }
 #tooltip .tt-type { color: var(--text-dim); font-size: 11px; }
@@ -226,7 +251,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
     display: inline-block; padding: 1px 7px; margin: 1px; border-radius: 10px;
     font-size: 10px; background: var(--purple-muted); color: var(--purple); font-weight: 500;
 }
-#tooltip .tt-locations { color: var(--yellow); font-size: 11px; margin-top: 3px; }
+#tooltip .tt-locations { color: #a16207; font-size: 11px; margin-top: 3px; }
 #tooltip .tt-photo { display: flex; gap: 10px; align-items: flex-start; }
 #tooltip .tt-photo img {
     width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
@@ -241,6 +266,11 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
     border: 2px solid var(--border);
 }
 .doc-header-info { flex: 1; }
+
+/* Scrollbar styling */
+#sidebar::-webkit-scrollbar, #right-panel::-webkit-scrollbar { width: 6px; }
+#sidebar::-webkit-scrollbar-track, #right-panel::-webkit-scrollbar-track { background: transparent; }
+#sidebar::-webkit-scrollbar-thumb, #right-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -254,7 +284,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
     <input type="text" id="search-box" placeholder="Search clinics or doctors..." autocomplete="off">
     <button class="topbar-btn" id="btn-clear">Clear</button>
     <label class="topbar-check">
-        <input type="checkbox" id="chk-merge-nip"> Merge by NIP
+        <input type="checkbox" id="chk-merge-nip" checked> Merge by NIP
     </label>
     <span id="stats">Loading...</span>
 </div>
@@ -264,11 +294,6 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
         <div class="panel" id="search-results" style="display:none">
             <h2>Search Results</h2>
             <div id="search-list"></div>
-        </div>
-
-        <div class="panel" id="node-details">
-            <h2>Node Details</h2>
-            <div id="detail-content"></div>
         </div>
 
         <div class="panel" id="spec-search-panel">
@@ -292,16 +317,32 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
                     <option value="7">Up to 3 clinics away</option>
                 </select>
             </div>
-            <button class="btn-action" id="btn-spec-search" disabled>Find Doctors</button>
+            <div style="display:flex;gap:6px">
+                <button class="btn-action" id="btn-spec-search" disabled style="flex:1">Find Doctors</button>
+                <button class="topbar-btn" id="btn-ss-clear">Clear</button>
+            </div>
             <div id="spec-results" style="margin-top:8px"></div>
         </div>
 
         <div class="panel" id="pathfind-panel">
             <h2>Pathfinding</h2>
-            <div class="input-group">
-                <label>From Clinic</label>
-                <input type="text" id="pf-from" placeholder="Search clinic..." autocomplete="off">
-                <div class="autocomplete-list" id="ac-from" style="display:none"></div>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted);cursor:pointer;margin-bottom:8px">
+                <input type="checkbox" id="pf-multi-mode" style="cursor:pointer;accent-color:var(--accent)"> Multiple start clinics
+            </label>
+            <div id="pf-single-from">
+                <div class="input-group">
+                    <label>From Clinic</label>
+                    <input type="text" id="pf-from" placeholder="Search clinic..." autocomplete="off">
+                    <div class="autocomplete-list" id="ac-from" style="display:none"></div>
+                </div>
+            </div>
+            <div id="pf-multi-container" style="display:none">
+                <div class="input-group">
+                    <label>From Clinics</label>
+                    <input type="text" id="pf-multi-from" placeholder="Add start clinic..." autocomplete="off">
+                    <div class="autocomplete-list" id="ac-pf-multi-from" style="display:none"></div>
+                </div>
+                <div class="selected-specs" id="pf-multi-selected"></div>
             </div>
             <div class="input-group">
                 <label>To Clinic</label>
@@ -317,12 +358,28 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
                     <option value="15">15</option>
                 </select>
             </div>
-            <button class="btn-action" id="btn-pathfind" disabled>Find Paths</button>
+            <div style="display:flex;gap:6px">
+                <button class="btn-action" id="btn-pathfind" disabled style="flex:1">Find Paths</button>
+                <button class="topbar-btn" id="btn-pf-clear">Clear</button>
+            </div>
             <div id="path-results" style="margin-top:8px"></div>
         </div>
     </div>
 
     <div id="cy"></div>
+
+    <div id="right-panel">
+        <div class="panel-header">
+            <h2 style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em">Details</h2>
+        </div>
+        <div id="right-panel-content">
+            <div class="placeholder-msg">
+                <div class="icon">&#128269;</div>
+                <div>Search for a clinic or doctor to view details</div>
+                <div style="font-size:11px;color:var(--text-dim)">Click = details &middot; Double-click = expand</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div id="loading">Loading...</div>
@@ -331,7 +388,15 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 <script>
 const API = '/api';
 let cy, fromClinicId = null, toClinicId = null, currentPaths = [];
-const PATH_COLORS = ['#f59e0b','#ef4444','#22c55e','#3b82f6','#ec4899','#8b5cf6','#06b6d4','#84cc16','#f97316','#6366f1'];
+const PATH_COLORS = ['#f59e0b','#ef4444','#16a34a','#3b82f6','#ec4899','#7c3aed','#06b6d4','#84cc16','#f97316','#6366f1'];
+
+// ── State tracking ──
+const expandedNodes = new Set();
+const specMatchDoctorIds = new Set();   // doctor node IDs matching spec search
+let motherNodeId = null;
+
+// Drag state
+let dragState = null;
 
 function isMergeNip() { return document.getElementById('chk-merge-nip').checked; }
 function mergeParam() { return isMergeNip() ? '&merge_nip=true' : ''; }
@@ -343,40 +408,102 @@ function initCy() {
     cy = cytoscape({
         container: document.getElementById('cy'),
         style: [
+            // ── Clinic base (not expanded = transparent fill) ──
             { selector: 'node[type="clinic"]', style: {
-                'shape': 'round-rectangle', 'background-color': '#1e3a5f',
-                'label': 'data(short_label)', 'color': '#a1a1aa', 'font-size': '10px',
+                'shape': 'round-rectangle',
+                'background-color': '#dbeafe', 'background-opacity': 0.35,
+                'label': 'data(short_label)', 'color': '#1e293b', 'font-size': '10px',
                 'font-family': 'Inter, system-ui, sans-serif',
                 'text-valign': 'bottom', 'text-margin-y': 5,
-                'width': 'mapData(doctors_count, 1, 50, 24, 56)',
-                'height': 'mapData(doctors_count, 1, 50, 24, 56)',
-                'border-width': 1, 'border-color': '#3b82f6', 'border-opacity': 0.5,
+                'width': 30, 'height': 30,
+                'border-width': 2, 'border-color': '#6b9fdb', 'border-opacity': 1,
                 'text-max-width': '100px', 'text-wrap': 'ellipsis',
             }},
+            // ── Expanded clinic (solid fill) ──
+            { selector: 'node[type="clinic"].expanded', style: {
+                'background-color': '#93b8e8', 'background-opacity': 1,
+                'border-color': '#3b72c4', 'border-width': 2.5,
+            }},
+            // ── Doctor base (not expanded = transparent fill) ──
             { selector: 'node[type="doctor"]', style: {
-                'shape': 'ellipse', 'background-color': '#14532d',
-                'label': 'data(short_label)', 'color': '#a1a1aa', 'font-size': '9px',
+                'shape': 'ellipse',
+                'background-color': '#bbf7d0', 'background-opacity': 0.35,
+                'label': 'data(short_label)', 'color': '#1e293b', 'font-size': '9px',
                 'font-family': 'Inter, system-ui, sans-serif',
                 'text-valign': 'bottom', 'text-margin-y': 4,
                 'width': 18, 'height': 18,
-                'border-width': 1, 'border-color': '#22c55e', 'border-opacity': 0.4,
+                'border-width': 1.5, 'border-color': '#4aba6f', 'border-opacity': 1,
                 'text-max-width': '80px', 'text-wrap': 'ellipsis',
             }},
+            // ── Expanded doctor (solid fill + thick border) ──
+            { selector: 'node[type="doctor"].expanded', style: {
+                'background-color': '#6ee7a0', 'background-opacity': 1,
+                'border-color': '#16a34a', 'border-width': 2.5,
+                'width': 22, 'height': 22,
+            }},
+            // ── Doctor with image ──
             { selector: 'node[type="doctor"][?has_img]', style: {
                 'background-image': 'data(img_url)', 'background-fit': 'cover',
-                'background-clip': 'node', 'width': 26, 'height': 26,
+                'background-clip': 'node', 'background-opacity': 1,
+                'width': 26, 'height': 26,
             }},
-            { selector: 'node.spec-match', style: {
-                'border-color': '#eab308', 'border-width': 2.5, 'border-opacity': 1,
+            // ── Expanded doctor with image (thick green ring) ──
+            { selector: 'node[type="doctor"].expanded[?has_img]', style: {
+                'border-color': '#16a34a', 'border-width': 3,
+                'width': 28, 'height': 28,
             }},
+            // ── Mother clinic (bigger, bold, glow) ──
+            { selector: 'node.mother', style: {
+                'width': 52, 'height': 52,
+                'border-color': '#2563eb', 'border-width': 3.5, 'border-opacity': 1,
+                'background-color': '#93b8e8', 'background-opacity': 1,
+                'shadow-blur': 14, 'shadow-color': '#60a5fa', 'shadow-opacity': 0.6,
+                'shadow-offset-x': 0, 'shadow-offset-y': 0,
+                'font-size': '11px', 'font-weight': 'bold',
+            }},
+            // ── Merged clinic (multiple locations) — pin icon via content ──
+            { selector: 'node[type="clinic"][?is_merged]', style: {
+                'content': 'data(merged_label)',
+                'text-valign': 'bottom', 'text-margin-y': 5,
+            }},
+            // ── Degree 1 clinic ──
+            { selector: 'node.degree-1', style: {
+                'border-color': '#6b9fdb', 'border-width': 2, 'border-opacity': 1,
+            }},
+            // ── Degree 2 clinic ──
+            { selector: 'node.degree-2', style: {
+                'border-color': '#93c5fd', 'border-width': 1.5, 'border-opacity': 0.8,
+            }},
+            // ── Degree 3+ clinic ──
+            { selector: 'node.degree-3', style: {
+                'border-color': '#bfdbfe', 'border-width': 1, 'border-opacity': 0.6,
+            }},
+            // ── Spec match doctor (green glow + yellow border) ──
+            { selector: 'node[type="doctor"].spec-match', style: {
+                'shadow-blur': 18, 'shadow-color': '#22c55e', 'shadow-opacity': 0.9,
+                'shadow-offset-x': 0, 'shadow-offset-y': 0,
+                'border-color': '#eab308', 'border-width': 3, 'border-opacity': 1,
+                'background-color': '#86efac', 'background-opacity': 1,
+            }},
+            // ── Spec match doctor with image ──
+            { selector: 'node[type="doctor"].spec-match[?has_img]', style: {
+                'shadow-blur': 18, 'shadow-color': '#22c55e', 'shadow-opacity': 0.9,
+                'border-color': '#eab308', 'border-width': 3.5,
+            }},
+            // ── Spec match clinic (stays blue, just green glow — no border change) ──
+            { selector: 'node[type="clinic"].spec-match', style: {
+                'shadow-blur': 18, 'shadow-color': '#22c55e', 'shadow-opacity': 0.9,
+                'shadow-offset-x': 0, 'shadow-offset-y': 0,
+            }},
+            // ── Edges ──
             { selector: 'edge', style: {
-                'line-color': '#27272a', 'width': 1, 'curve-style': 'bezier', 'opacity': 0.6,
+                'line-color': '#9ca3af', 'width': 1.2, 'curve-style': 'bezier', 'opacity': 0.7,
             }},
             { selector: 'edge[booking_ratio]', style: {
-                'line-color': 'mapData(booking_ratio, 0, 1, #27272a, #3b82f6)',
-                'width': 'mapData(booking_ratio, 0, 1, 1, 2.5)',
+                'line-color': 'mapData(booking_ratio, 0, 1, #9ca3af, #3b82f6)',
+                'width': 'mapData(booking_ratio, 0, 1, 1.2, 2.5)',
             }},
-            { selector: 'node:selected', style: { 'border-color': '#eab308', 'border-width': 2.5, 'border-opacity': 1 }},
+            // ── Path highlight / dim ──
             { selector: '.path-highlight', style: { 'opacity': 1, 'z-index': 10 }},
             { selector: '.dimmed', style: { 'opacity': 0.12 }},
         ],
@@ -384,13 +511,57 @@ function initCy() {
         minZoom: 0.1, maxZoom: 5,
     });
 
-    cy.on('tap', 'node', async (e) => {
-        await loadNodeDetails(e.target.data('type'), e.target.data('raw_id'));
-    });
-    cy.on('dbltap', 'node', async (e) => {
-        await loadNeighborhood(e.target.data('type'), e.target.data('raw_id'), 2);
+    // ── Single click → show details in right panel (no expand) ──
+    let tapTimer = null;
+    cy.on('tap', 'node', (e) => {
+        if (tapTimer) return; // ignore if double-tap pending
+        const node = e.target;
+        tapTimer = setTimeout(async () => {
+            tapTimer = null;
+            await loadNodeDetails(node.data('type'), node.data('raw_id'));
+        }, 250);
     });
 
+    // ── Double click → expand neighborhood + show details ──
+    cy.on('dbltap', 'node', async (e) => {
+        if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; }
+        const node = e.target;
+        const nodeId = node.id();
+        expandedNodes.add(nodeId);
+        node.addClass('expanded');
+        loadNodeDetails(node.data('type'), node.data('raw_id'));
+        await loadNeighborhood(node.data('type'), node.data('raw_id'), 1);
+    });
+
+    // ── Compound drag: clinic drags its exclusive doctors ──
+    cy.on('grab', 'node[type="clinic"]', (e) => {
+        const clinic = e.target;
+        const clinicPos = clinic.position();
+        const followers = [];
+        clinic.connectedEdges().connectedNodes().forEach(n => {
+            if (n.id() === clinic.id()) return;
+            if (n.data('type') !== 'doctor') return;
+            // only follow if this doctor connects to exactly one clinic in the graph
+            const clinicNeighbors = n.connectedEdges().connectedNodes().filter(nn => nn.data('type') === 'clinic');
+            if (clinicNeighbors.length === 1) {
+                const pos = n.position();
+                followers.push({ node: n, dx: pos.x - clinicPos.x, dy: pos.y - clinicPos.y });
+            }
+        });
+        dragState = { clinic, initPos: { ...clinicPos }, followers };
+    });
+
+    cy.on('drag', 'node[type="clinic"]', (e) => {
+        if (!dragState || dragState.clinic.id() !== e.target.id()) return;
+        const pos = e.target.position();
+        for (const f of dragState.followers) {
+            f.node.position({ x: pos.x + f.dx, y: pos.y + f.dy });
+        }
+    });
+
+    cy.on('free', 'node[type="clinic"]', () => { dragState = null; });
+
+    // ── Tooltip ──
     const tooltip = document.getElementById('tooltip');
 
     cy.on('mouseover', 'node', (e) => {
@@ -465,14 +636,27 @@ async function doSearch(q) {
         const el = document.createElement('div');
         el.className = 'search-item';
         el.innerHTML = `<span class="badge badge-clinic">C</span> ${esc(c.name)}`;
-        el.onclick = () => loadNeighborhood('clinic', c.id, 1);
+        el.onclick = () => {
+            // Set as mother, expand, show details
+            const nodeId = `c_${c.id}`;
+            if (!motherNodeId) motherNodeId = nodeId;
+            expandedNodes.add(nodeId);
+            loadNeighborhood('clinic', c.id, 1);
+            loadNodeDetails('clinic', c.id);
+        };
         searchList.appendChild(el);
     }
     for (const d of data.doctors) {
         const el = document.createElement('div');
         el.className = 'search-item';
         el.innerHTML = `<span class="badge badge-doctor">D</span> ${esc(d.name)} ${esc(d.surname)}`;
-        el.onclick = () => loadNeighborhood('doctor', d.id, 1);
+        el.onclick = () => {
+            const nodeId = `d_${d.id}`;
+            if (!motherNodeId) motherNodeId = nodeId;
+            expandedNodes.add(nodeId);
+            loadNeighborhood('doctor', d.id, 1);
+            loadNodeDetails('doctor', d.id);
+        };
         searchList.appendChild(el);
     }
     if (!data.clinics.length && !data.doctors.length)
@@ -490,14 +674,26 @@ async function loadNodeDetails(type, rawId) {
     const data = await apiFetch(`/node/${type}/${rawId}${mergeParamFirst()}`);
     if (data.error) return;
     const det = data.details;
-    const panel = document.getElementById('node-details');
-    const content = document.getElementById('detail-content');
-    panel.style.display = 'block';
+    const content = document.getElementById('right-panel-content');
 
     let html = '';
     if (type === 'clinic') {
         html += `<h3 style="color:var(--accent)">${esc(det.name || 'Unknown')}</h3>`;
-        if (det.doctors_count) html += `<div class="detail-row"><span class="detail-label">Doctors:</span> ${det.doctors_count}</div>`;
+        if (det.doctors_count) {
+            let docLine = `<span class="detail-label">Doctors:</span> ${det.doctors_count}`;
+            // Count spec-match doctors connected to this clinic on the graph
+            if (specMatchDoctorIds.size) {
+                const clinicNode = cy.getElementById(`c_${rawId}`);
+                if (clinicNode.length) {
+                    let matchCount = 0;
+                    clinicNode.connectedEdges().connectedNodes().forEach(n => {
+                        if (n.data('type') === 'doctor' && specMatchDoctorIds.has(n.id())) matchCount++;
+                    });
+                    if (matchCount > 0) docLine += ` <span style="color:#eab308;font-weight:600">(${matchCount} matching)</span>`;
+                }
+            }
+            html += `<div class="detail-row">${docLine}</div>`;
+        }
         if (det.legal_name) html += `<div class="detail-row"><span class="detail-label">Legal:</span> ${esc(det.legal_name)}</div>`;
         if (det.nip) html += `<div class="detail-row"><span class="detail-label">NIP:</span> ${det.nip}</div>`;
         if (det.website_domain) html += `<div class="detail-row"><span class="detail-label">Website:</span> ${esc(det.website_domain)}</div>`;
@@ -552,7 +748,8 @@ async function loadNodeDetails(type, rawId) {
         }
     }
     content.innerHTML = html;
-    addToGraph(data.neighborhood.nodes, data.neighborhood.edges);
+
+    // Also add 1-hop neighbors to graph (without marking as expanded)
 }
 
 // ── Graph ──
@@ -562,11 +759,17 @@ function addToGraph(nodes, edges) {
     const elements = [];
     for (const n of nodes) {
         if (!cy.getElementById(n.id).length) {
+            const shortLbl = truncateLabel(n.label || n.id, 22);
+            const locCount = n.locations_count || 0;
             const d = {
-                id: n.id, label: n.label || n.id, short_label: truncateLabel(n.label || n.id, 22),
+                id: n.id, label: n.label || n.id, short_label: shortLbl,
                 type: n.type, raw_id: n.raw_id, doctors_count: n.doctors_count || 1,
-                specializations: (n.specializations || []).join(', '), locations_count: n.locations_count || 0,
+                specializations: (n.specializations || []).join(', '), locations_count: locCount,
             };
+            if (n.type === 'clinic' && locCount > 1) {
+                d.is_merged = true;
+                d.merged_label = '\uD83D\uDCCD ' + shortLbl;
+            }
             if (n.type === 'doctor') {
                 d.gender = n.gender;
                 if (n.img_url) { d.img_url = n.img_url; d.has_img = true; }
@@ -584,32 +787,172 @@ function addToGraph(nodes, edges) {
         }
     }
     if (elements.length) {
+        // Track which nodes already exist before adding new ones
+        const existingNodeIds = new Set();
+        cy.nodes().forEach(n => existingNodeIds.add(n.id()));
+
         cy.add(elements);
-        cy.layout({
+
+        // Apply expanded class to nodes we already know are expanded
+        for (const nodeId of expandedNodes) {
+            const n = cy.getElementById(nodeId);
+            if (n.length) n.addClass('expanded');
+        }
+
+        // Re-apply spec-match to any doctor that matched the spec search
+        if (specMatchDoctorIds.size) {
+            cy.nodes().forEach(n => {
+                if (specMatchDoctorIds.has(n.id())) {
+                    n.addClass('spec-match');
+                    // Also mark connected clinics
+                    n.connectedEdges().connectedNodes().forEach(nb => {
+                        if (nb.data('type') === 'clinic') nb.addClass('spec-match');
+                    });
+                }
+            });
+        }
+
+        // Apply degree classes based on mother node
+        applyDegreeClasses();
+
+        // Lock existing nodes so only new ones get repositioned
+        const isIncremental = existingNodeIds.size > 0;
+        if (isIncremental) {
+            existingNodeIds.forEach(id => {
+                const n = cy.getElementById(id);
+                if (n.length) n.lock();
+            });
+        }
+
+        const layoutObj = cy.layout({
             name: 'cose-bilkent', animate: true, animationDuration: 600,
-            nodeRepulsion: 25000, idealEdgeLength: 140, edgeElasticity: 0.05,
-            gravity: 0.08, gravityRange: 1.5, numIter: 2500, tile: true, fit: true, padding: 50,
+            nodeRepulsion: isIncremental ? 18000 : 25000,
+            idealEdgeLength: isIncremental ? 120 : 140,
+            edgeElasticity: 0.05,
+            gravity: isIncremental ? 0.15 : 0.08,
+            gravityRange: 1.5, numIter: 2500, tile: true,
+            fit: !isIncremental, padding: 50,
             nestingFactor: 0.1, tilingPaddingVertical: 20, tilingPaddingHorizontal: 20,
-        }).run();
+        });
+
+        // Unlock nodes after layout finishes
+        if (isIncremental) {
+            layoutObj.on('layoutstop', () => {
+                existingNodeIds.forEach(id => {
+                    const n = cy.getElementById(id);
+                    if (n.length) n.unlock();
+                });
+            });
+        }
+
+        layoutObj.run();
     }
 }
 
-function clearGraph() { cy.elements().remove(); }
+function applyDegreeClasses() {
+    if (!motherNodeId) return;
+    const mother = cy.getElementById(motherNodeId);
+    if (!mother.length) return;
+
+    // Remove old degree classes from all clinics
+    cy.nodes('[type="clinic"]').removeClass('mother degree-1 degree-2 degree-3');
+
+    // BFS from mother through the cytoscape graph, counting clinic hops
+    // In bipartite graph: clinic -> doctor -> clinic = 1 clinic hop
+    const visited = new Set();
+    const clinicDist = new Map();
+    const queue = [{ id: motherNodeId, dist: 0 }];
+    visited.add(motherNodeId);
+    clinicDist.set(motherNodeId, 0);
+
+    while (queue.length) {
+        const { id, dist } = queue.shift();
+        const node = cy.getElementById(id);
+        if (!node.length) continue;
+
+        node.connectedEdges().connectedNodes().forEach(neighbor => {
+            const nid = neighbor.id();
+            if (visited.has(nid)) return;
+            visited.add(nid);
+
+            const ntype = neighbor.data('type');
+            if (ntype === 'clinic') {
+                // clinic reached via a doctor — same clinic distance as the doctor's parent clinic + 1
+                clinicDist.set(nid, dist + 1);
+                queue.push({ id: nid, dist: dist + 1 });
+            } else {
+                // doctor node — inherits the clinic dist of the clinic it came from
+                queue.push({ id: nid, dist });
+            }
+        });
+    }
+
+    // Apply classes
+    for (const [nodeId, dist] of clinicDist) {
+        const node = cy.getElementById(nodeId);
+        if (!node.length || node.data('type') !== 'clinic') continue;
+        if (dist === 0) node.addClass('mother');
+        else if (dist === 1) node.addClass('degree-1');
+        else if (dist === 2) node.addClass('degree-2');
+        else node.addClass('degree-3');
+    }
+}
+
+function clearGraph() { cy.elements().remove(); specMatchDoctorIds.clear(); }
 
 function resetAll() {
     clearGraph(); currentPaths = []; fromClinicId = null; toClinicId = null;
+    expandedNodes.clear(); motherNodeId = null;
+    ssClinicId = null;
+    document.getElementById('ss-clinic').value = '';
+    ssSelectedSpecs.length = 0;
+    if (typeof renderSelectedSpecs === 'function') renderSelectedSpecs();
+    document.getElementById('btn-spec-search').disabled = true;
+    if (typeof pfMultiClinics !== 'undefined') { pfMultiClinics.length = 0; if (typeof renderPfMultiClinics === 'function') renderPfMultiClinics(); }
     document.getElementById('pf-from').value = '';
     document.getElementById('pf-to').value = '';
     document.getElementById('path-results').innerHTML = '';
-    document.getElementById('node-details').style.display = 'none';
     document.getElementById('search-results').style.display = 'none';
     document.getElementById('search-box').value = '';
     document.getElementById('btn-pathfind').disabled = true;
     document.getElementById('spec-results').innerHTML = '';
+    document.getElementById('right-panel-content').innerHTML = `
+        <div class="placeholder-msg">
+            <div class="icon">&#128269;</div>
+            <div>Search for a clinic or doctor to view details</div>
+            <div style="font-size:11px;color:var(--text-dim)">Click = details &middot; Double-click = expand</div>
+        </div>`;
 }
 
 document.getElementById('btn-clear').addEventListener('click', resetAll);
 document.getElementById('chk-merge-nip').addEventListener('change', () => { resetAll(); loadStats(); });
+
+// Per-form clear: spec search
+document.getElementById('btn-ss-clear').addEventListener('click', () => {
+    ssClinicId = null;
+    document.getElementById('ss-clinic').value = '';
+    ssSelectedSpecs.length = 0;
+    renderSelectedSpecs();
+    document.getElementById('ss-hops').value = '3';
+    document.getElementById('spec-results').innerHTML = '';
+    document.getElementById('btn-spec-search').disabled = true;
+    localStorage.removeItem('ss_clinic');
+});
+
+// Per-form clear: pathfinding
+document.getElementById('btn-pf-clear').addEventListener('click', () => {
+    fromClinicId = null; toClinicId = null;
+    document.getElementById('pf-from').value = '';
+    document.getElementById('pf-to').value = '';
+    pfMultiClinics.length = 0;
+    renderPfMultiClinics();
+    document.getElementById('pf-multi-from').value = '';
+    document.getElementById('path-results').innerHTML = '';
+    document.getElementById('btn-pathfind').disabled = true;
+    currentPaths = [];
+    localStorage.removeItem('pf_from_clinic');
+    localStorage.removeItem('pf_multi_clinics');
+});
 
 // ── Clinic autocomplete helper ──
 function setupClinicAutocomplete(input, dropdown, onSelect) {
@@ -625,7 +968,7 @@ function setupClinicAutocomplete(input, dropdown, onSelect) {
                 const el = document.createElement('div');
                 el.className = 'autocomplete-item';
                 el.textContent = c.name;
-                el.onclick = () => { input.value = c.name; dropdown.style.display = 'none'; onSelect(c.id); };
+                el.onclick = () => { input.value = c.name; dropdown.style.display = 'none'; onSelect(c.id, c.name); };
                 dropdown.appendChild(el);
             }
             dropdown.style.display = data.clinics.length ? 'block' : 'none';
@@ -635,16 +978,70 @@ function setupClinicAutocomplete(input, dropdown, onSelect) {
 }
 
 // ── Pathfinding ──
-setupClinicAutocomplete(document.getElementById('pf-from'), document.getElementById('ac-from'), (id) => { fromClinicId = id; updatePfBtn(); });
+const pfMultiClinics = [];
+
+setupClinicAutocomplete(document.getElementById('pf-from'), document.getElementById('ac-from'), (id, name) => {
+    fromClinicId = id;
+    localStorage.setItem('pf_from_clinic', JSON.stringify({id, name}));
+    updatePfBtn();
+});
 setupClinicAutocomplete(document.getElementById('pf-to'), document.getElementById('ac-to'), (id) => { toClinicId = id; updatePfBtn(); });
-function updatePfBtn() { document.getElementById('btn-pathfind').disabled = !(fromClinicId && toClinicId); }
+
+// Multi-clinic "from" for pathfinding
+setupClinicAutocomplete(document.getElementById('pf-multi-from'), document.getElementById('ac-pf-multi-from'), (id, name) => {
+    if (!pfMultiClinics.some(c => c.id === id)) {
+        pfMultiClinics.push({id, name});
+        localStorage.setItem('pf_multi_clinics', JSON.stringify(pfMultiClinics));
+        renderPfMultiClinics();
+        updatePfBtn();
+    }
+    document.getElementById('pf-multi-from').value = '';
+});
+
+function togglePfMultiMode(multi) {
+    document.getElementById('pf-single-from').style.display = multi ? 'none' : '';
+    document.getElementById('pf-multi-container').style.display = multi ? '' : 'none';
+    updatePfBtn();
+}
+
+document.getElementById('pf-multi-mode').addEventListener('change', (e) => {
+    const multi = e.target.checked;
+    localStorage.setItem('pf_multi_mode', multi);
+    togglePfMultiMode(multi);
+});
+
+function renderPfMultiClinics() {
+    const el = document.getElementById('pf-multi-selected');
+    el.innerHTML = '';
+    for (const c of pfMultiClinics) {
+        const tag = document.createElement('span');
+        tag.className = 'selected-spec';
+        tag.innerHTML = `${esc(c.name)} <span class="remove-spec">\u00d7</span>`;
+        tag.querySelector('.remove-spec').onclick = () => {
+            const i = pfMultiClinics.findIndex(x => x.id === c.id);
+            if (i >= 0) pfMultiClinics.splice(i, 1);
+            localStorage.setItem('pf_multi_clinics', JSON.stringify(pfMultiClinics));
+            renderPfMultiClinics();
+            updatePfBtn();
+        };
+        el.appendChild(tag);
+    }
+}
+
+function updatePfBtn() {
+    const multi = document.getElementById('pf-multi-mode').checked;
+    const hasFrom = multi ? pfMultiClinics.length > 0 : fromClinicId !== null;
+    document.getElementById('btn-pathfind').disabled = !(hasFrom && toClinicId);
+}
 
 document.getElementById('btn-pathfind').addEventListener('click', async () => {
-    if (!fromClinicId || !toClinicId) return;
+    const multi = document.getElementById('pf-multi-mode').checked;
+    const fromParam = multi ? pfMultiClinics.map(c => c.id).join(',') : fromClinicId;
+    if (!fromParam || !toClinicId) return;
     const btn = document.getElementById('btn-pathfind');
     const pr = document.getElementById('path-results');
     btn.disabled = true; btn.textContent = 'Searching...';
-    const data = await apiFetch(`/pathfind?from_clinic=${fromClinicId}&to_clinic=${toClinicId}&k=${document.getElementById('pf-k').value}${mergeParam()}`);
+    const data = await apiFetch(`/pathfind?from_clinic=${fromParam}&to_clinic=${toClinicId}&k=${document.getElementById('pf-k').value}${mergeParam()}`);
     btn.disabled = false; btn.textContent = 'Find Paths';
     currentPaths = data.paths || [];
 
@@ -659,6 +1056,10 @@ document.getElementById('btn-pathfind').addEventListener('click', async () => {
             if (!seen.has(n.id)) { seen.add(n.id); allN.push({ id: n.id, type: n.type, raw_id: n.raw_id, label: n.label, doctors_count: 1, specializations: n.specializations || [] }); }
             if (i < path.length - 1) allE.push({ source: n.id, target: path[i+1].id });
         }
+    }
+    // Set first clinic as mother
+    if (currentPaths.length && currentPaths[0].length) {
+        motherNodeId = currentPaths[0][0].id;
     }
     addToGraph(allN, allE);
 
@@ -697,7 +1098,12 @@ function highlightPath(idx) {
 // ── Specialization Search ──
 let ssClinicId = null;
 const ssSelectedSpecs = [];
-setupClinicAutocomplete(document.getElementById('ss-clinic'), document.getElementById('ac-ss-clinic'), (id) => { ssClinicId = id; updateSsBtn(); });
+
+setupClinicAutocomplete(document.getElementById('ss-clinic'), document.getElementById('ac-ss-clinic'), (id, name) => {
+    ssClinicId = id;
+    localStorage.setItem('ss_clinic', JSON.stringify({id, name}));
+    updateSsBtn();
+});
 
 let specTimeout;
 const ssSpecInput = document.getElementById('ss-spec');
@@ -744,7 +1150,9 @@ function renderSelectedSpecs() {
     }
 }
 
-function updateSsBtn() { document.getElementById('btn-spec-search').disabled = !(ssClinicId && ssSelectedSpecs.length); }
+function updateSsBtn() {
+    document.getElementById('btn-spec-search').disabled = !(ssClinicId && ssSelectedSpecs.length);
+}
 
 document.getElementById('btn-spec-search').addEventListener('click', async () => {
     if (!ssClinicId || !ssSelectedSpecs.length) return;
@@ -760,10 +1168,35 @@ document.getElementById('btn-spec-search').addEventListener('click', async () =>
     if (data.error) { sr.innerHTML = `<div style="color:var(--red);font-size:13px;padding:8px">${esc(data.error)}</div>`; return; }
 
     clearGraph();
+    expandedNodes.clear();
+    motherNodeId = `c_${ssClinicId}`;
+    expandedNodes.add(motherNodeId);
     addToGraph(data.nodes, data.edges);
 
-    const matchedIds = new Set(data.results.map(r => `d_${r.doctor_id}`));
-    cy.nodes().forEach(n => { if (matchedIds.has(n.id())) n.addClass('spec-match'); });
+    // Store matched doctor IDs globally & mark with spec-match class
+    specMatchDoctorIds.clear();
+    data.results.forEach(r => specMatchDoctorIds.add(`d_${r.doctor_id}`));
+    const matchedIds = specMatchDoctorIds;
+    const specMatchClinicIds = new Set();
+    cy.nodes().forEach(n => {
+        if (matchedIds.has(n.id())) {
+            n.addClass('spec-match');
+            // Also mark clinics connected to matched doctors
+            n.connectedEdges().connectedNodes().forEach(neighbor => {
+                if (neighbor.data('type') === 'clinic') specMatchClinicIds.add(neighbor.id());
+            });
+        }
+    });
+    specMatchClinicIds.forEach(cid => {
+        const cn = cy.getElementById(cid);
+        if (cn.length) cn.addClass('spec-match');
+    });
+
+    // Mark fully expanded nodes
+    for (const nodeId of expandedNodes) {
+        const n = cy.getElementById(nodeId);
+        if (n.length) n.addClass('expanded');
+    }
 
     if (!data.results.length) { sr.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:8px">No doctors found in range.</div>'; return; }
 
@@ -782,7 +1215,11 @@ document.getElementById('btn-spec-search').addEventListener('click', async () =>
     sr.querySelectorAll('.spec-result-item').forEach(el => {
         el.onclick = () => {
             const n = cy.getElementById(el.dataset.id);
-            if (n.length) { cy.animate({ center: { eles: n }, zoom: 2 }, { duration: 300 }); n.select(); loadNodeDetails('doctor', parseInt(el.dataset.id.split('_')[1])); }
+            if (n.length) {
+                cy.animate({ center: { eles: n }, zoom: 2 }, { duration: 300 });
+                n.select();
+                loadNodeDetails('doctor', parseInt(el.dataset.id.split('_')[1]));
+            }
         };
     });
 });
@@ -798,7 +1235,35 @@ async function loadStats() {
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function showLoading(show) { document.getElementById('loading').style.display = show ? 'block' : 'none'; }
 
-document.addEventListener('DOMContentLoaded', () => { initCy(); loadStats(); });
+document.addEventListener('DOMContentLoaded', () => {
+    initCy(); loadStats();
+    // Restore spec search clinic from localStorage
+    const savedSs = JSON.parse(localStorage.getItem('ss_clinic') || 'null');
+    if (savedSs) {
+        ssClinicId = savedSs.id;
+        document.getElementById('ss-clinic').value = savedSs.name;
+        updateSsBtn();
+    }
+    // Restore pathfinding from-clinic from localStorage
+    const savedPfFrom = JSON.parse(localStorage.getItem('pf_from_clinic') || 'null');
+    if (savedPfFrom) {
+        fromClinicId = savedPfFrom.id;
+        document.getElementById('pf-from').value = savedPfFrom.name;
+        updatePfBtn();
+    }
+    // Restore pathfinding multi-clinic mode and clinics from localStorage
+    const savedPfMultiMode = localStorage.getItem('pf_multi_mode') === 'true';
+    if (savedPfMultiMode) {
+        document.getElementById('pf-multi-mode').checked = true;
+        togglePfMultiMode(true);
+    }
+    const savedPfMulti = JSON.parse(localStorage.getItem('pf_multi_clinics') || '[]');
+    if (savedPfMulti.length) {
+        pfMultiClinics.push(...savedPfMulti);
+        renderPfMultiClinics();
+        updatePfBtn();
+    }
+});
 </script>
 </body>
 </html>

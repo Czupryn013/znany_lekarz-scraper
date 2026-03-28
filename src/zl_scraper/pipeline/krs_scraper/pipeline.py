@@ -1,6 +1,7 @@
 """KRS/CEIDG enrichment orchestrator — look up clinics by NIP, extract board members."""
 
 import time
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
@@ -185,6 +186,30 @@ def _save_board_members(session: Session, clinic: Clinic, members: list[dict]) -
         ))
 
 
+# ── Summary helpers ──────────────────────────────────────────────────────
+
+
+def _print_summary(stats: dict, processed: int, total: int, label: str = "Progress") -> None:
+    """Print a formatted summary table of entity types and board member counts."""
+    all_types = sorted(stats["counts"].keys())
+    header = f"{'Entity type':<20} {'Clinics':>8} {'Board members':>14}"
+    separator = "-" * len(header)
+    lines = [
+        f"\n=== {label} ({processed}/{total} processed) ===",
+        header,
+        separator,
+    ]
+    for lt in all_types:
+        lines.append(
+            f"{lt:<20} {stats['counts'][lt]:>8} {stats['members'][lt]:>14}"
+        )
+    lines.append(separator)
+    lines.append(
+        f"{'TOTAL':<20} {sum(stats['counts'].values()):>8} {sum(stats['members'].values()):>14}"
+    )
+    logger.info("\n".join(lines))
+
+
 # ── Main orchestrator ────────────────────────────────────────────────────
 
 
@@ -214,6 +239,8 @@ def run_krs_enrich(
             return
 
         logger.info("Starting KRS enrichment for %d clinics", total)
+
+        stats: dict = {"counts": defaultdict(int), "members": defaultdict(int)}
 
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=headless, args=["--start-maximized"])
@@ -270,19 +297,28 @@ def run_krs_enrich(
                     else:
                         logger.info("  No board members extracted (legal_type=%s)", legal_type)
 
+                    stats["counts"][legal_type] += 1
+                    stats["members"][legal_type] += len(members)
+
                 except Exception:
                     logger.exception("Error processing clinic #%d NIP=%s", clinic.id, nip)
                     # Still stamp as searched so we don't retry endlessly
                     clinic.krs_searched_at = datetime.utcnow()
                     clinic.legal_type = "ERROR"
+                    stats["counts"]["ERROR"] += 1
 
                 # Commit after each clinic
                 session.commit()
                 logger.info("  Committed clinic #%d (%d/%d)", clinic.id, idx, total)
 
+                # Print summary every 100 clinics
+                if idx % 100 == 0:
+                    _print_summary(stats, idx, total, label="Interim summary")
+
                 # Cooldown between clinics
                 time.sleep(2)
 
+            _print_summary(stats, total, total, label="Final summary")
             logger.info("KRS enrichment complete: %d/%d clinics processed", total, total)
 
             browser.close()

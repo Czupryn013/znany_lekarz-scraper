@@ -148,13 +148,13 @@ def get_neighborhood(
 def find_doctors_by_specialization(
     c2d: dict[int, set[int]],
     d2c: dict[int, set[int]],
-    start_clinic: int,
+    start_clinics: list[int],
     target_spec_ids: set[int],
     doctor_specs: dict[int, set[int]],
     max_hops: int = 3,
     max_results: int = 50,
 ) -> dict:
-    """BFS from a clinic to find doctors with target specializations within max_hops.
+    """BFS from one or more clinics to find doctors with target specializations within max_hops.
 
     Phase 1: lightweight BFS on raw IDs only (no node/edge building) — explores full graph.
     Phase 2: trace back paths from matched doctors to start, build subgraph from those paths only.
@@ -164,10 +164,11 @@ def find_doctors_by_specialization(
     depth_map: dict[tuple[str, int], int] = {}
     queue: deque[tuple[str, int, int]] = deque()
 
-    start = ("clinic", start_clinic)
-    queue.append((*start, 0))
-    parent[start] = None
-    depth_map[start] = 0
+    for sc in start_clinics:
+        start = ("clinic", sc)
+        queue.append((*start, 0))
+        parent[start] = None
+        depth_map[start] = 0
 
     results: list[dict] = []
     found_doctors: set[int] = set()
