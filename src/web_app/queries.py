@@ -108,9 +108,11 @@ def search_nodes(session: Session, query_string: str, limit: int = 20) -> dict:
 
     clinics = session.execute(
         text("""
-            SELECT id, name FROM clinics
-            WHERE name ILIKE :q
-            ORDER BY doctors_count DESC NULLS LAST
+            SELECT c.id, c.name,
+                   (SELECT cl.address FROM clinic_locations cl WHERE cl.clinic_id = c.id LIMIT 1) as address
+            FROM clinics c
+            WHERE c.name ILIKE :q
+            ORDER BY c.doctors_count DESC NULLS LAST
             LIMIT :lim
         """),
         {"q": pattern, "lim": limit},
@@ -126,7 +128,7 @@ def search_nodes(session: Session, query_string: str, limit: int = 20) -> dict:
     ).fetchall()
 
     return {
-        "clinics": [{"id": r[0], "name": r[1]} for r in clinics],
+        "clinics": [{"id": r[0], "name": r[1], "address": r[2]} for r in clinics],
         "doctors": [{"id": r[0], "name": r[1], "surname": r[2]} for r in doctors],
     }
 

@@ -244,3 +244,57 @@ def search_person(full_name: str, company_domain: str) -> dict | None:
     }
     logger.info("FullEnrich search found: %s → %s", full_name, result["linkedin_url"])
     return result
+
+
+# ── Company Search API (v2) ────────────────────────────────────────────
+
+FULLENRICH_COMPANY_SEARCH_URL = "https://app.fullenrich.com/api/v2/company/search"
+
+
+def search_company(name: str, domain: str, filter_location: bool = True) -> dict | None:
+    """Search for a company by name + domain via FullEnrich Company Search API."""
+    if not name and not domain:
+        return None
+
+    clean_domain = _sanitize_domain(domain) if domain else None
+    logger.info("FullEnrich company search: '%s' / %s", name, clean_domain)
+
+    payload: dict = {"limit": 1}
+    if filter_location:
+        payload["headquarters_locations"] = [
+            {"value": "Poland", "exact_match": False, "exclude": False},
+            {"value": "Polska", "exact_match": False, "exclude": False},
+            {"value": "PL", "exact_match": False, "exclude": False},
+        ]
+    if name:
+        payload["names"] = [{"value": name, "exact_match": False, "exclude": False}]
+    if clean_domain:
+        payload["domains"] = [{"value": clean_domain, "exact_match": True, "exclude": False}]
+
+    resp = httpx.post(
+        FULLENRICH_COMPANY_SEARCH_URL,
+        headers=_auth_headers(),
+        json=payload,
+        timeout=30,
+    )
+    if resp.is_error:
+        logger.error("FullEnrich company search error %d: %s", resp.status_code, resp.text)
+        resp.raise_for_status()
+
+    data = resp.json()
+    companies = data.get("companies", [])
+
+    if not companies:
+        logger.info("FullEnrich company search: no results for '%s' / %s", name, clean_domain)
+        return None
+
+    company = companies[0]
+    social = company.get("social_profiles", {})
+    li = social.get("linkedin", {})
+
+    result = {
+        "linkedin_url": li.get("url"),
+        "connection_count": li.get("connection_count"),
+    }
+    logger.info("FullEnrich company search found: '%s' → %s", name, result["linkedin_url"])
+    return result

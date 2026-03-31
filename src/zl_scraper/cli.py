@@ -701,6 +701,72 @@ def export(
         session.close()
 
 
+@app.command(name="export-domains", rich_help_panel="Export")
+def export_domains(
+    output: str = typer.Option("domains_export.csv", "--output", help="Output CSV file path"),
+    show_all: bool = typer.Option(False, "--all", help="Include all enriched clinics (default: ICP only)"),
+    no_linkedin: bool = typer.Option(False, "--no-linkedin", help="Only export clinics without a LinkedIn URL"),
+) -> None:
+    """Dump clinic domains to CSV — name, domain, locations, etc."""
+    import csv as csv_mod
+
+    from sqlalchemy import func
+
+    session = SessionLocal()
+    try:
+        base_filter = [Clinic.enriched_at.isnot(None)]
+        if not show_all:
+            base_filter.append(Clinic.icp_match.is_(True))
+        if no_linkedin:
+            base_filter.append(Clinic.linkedin_url.is_(None))
+
+        clinics = (
+            session.query(Clinic)
+            .filter(*base_filter)
+            .order_by(Clinic.name)
+            .all()
+        )
+
+        if not clinics:
+            console.print("[yellow]No clinics found.[/yellow]")
+            return
+
+        fieldnames = [
+            "website_domain", "id", "name", "legal_name", "linkedin_url",
+            "nip", "legal_type", "doctors_count", "icp_match",
+            "locations", "addresses",
+        ]
+
+        rows = []
+        for clinic in clinics:
+            locations = session.query(ClinicLocation).filter_by(clinic_id=clinic.id).all()
+            addresses = [loc.address for loc in locations if loc.address]
+
+            rows.append({
+                "id": clinic.id,
+                "name": clinic.name,
+                "legal_name": clinic.legal_name or "",
+                "website_domain": clinic.website_domain or "",
+                "linkedin_url": clinic.linkedin_url or "",
+                "nip": clinic.nip or "",
+                "legal_type": clinic.legal_type or "",
+                "doctors_count": clinic.doctors_count or 0,
+                "icp_match": clinic.icp_match,
+                "locations": len(locations),
+                "addresses": "; ".join(addresses),
+            })
+
+        with open(output, "w", newline="", encoding="utf-8") as f:
+            writer = csv_mod.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        scope = "all enriched" if show_all else "ICP"
+        console.print(f"[green]Exported {len(rows)} {scope} clinics to {output}[/green]")
+    finally:
+        session.close()
+
+
 def _parse_pesel_birth_date(pesel: Optional[str]) -> Optional[date]:
     """Return birth date parsed from PESEL, or None when invalid/unknown."""
     if not pesel:
@@ -1044,6 +1110,29 @@ def find_linkedin(
 
     asyncio.run(run_find_company_linkedin(limit=limit, icp_only=not all_clinics, retry_apify=retry_apify))
     console.print("[green]LinkedIn discovery complete.[/green]")
+
+
+@app.command(name="fe-find-linkedin", rich_help_panel="Company Enrichment")
+def fe_find_linkedin(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many clinics to process"),
+    all_clinics: bool = typer.Option(False, "--all", help="Process all enriched clinics, not just ICP-fit"),
+    retry_serp: bool = typer.Option(False, "--retry-serp", help="Include clinics already SERP-searched but with no LinkedIn found"),
+    skip_location: bool = typer.Option(False, "--skip-location", help="Don't filter by Poland headquarters"),
+) -> None:
+    """Find company LinkedIn URLs via FullEnrich Company Search API."""
+    from zl_scraper.pipeline.company_enrich.fe_search import run_fe_company_search
+
+    stats = asyncio.run(run_fe_company_search(limit=limit, icp_only=not all_clinics, retry_serp=retry_serp, skip_location=skip_location))
+
+    table = Table(title="FE Company LinkedIn Search")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("Total processed", str(stats["total"]))
+    table.add_row("Found", f"[green]{stats['found']}[/green]")
+    table.add_row("Not found", str(stats["not_found"]))
+    table.add_row("Errors", f"[red]{stats['errors']}[/red]" if stats["errors"] else "0")
+    console.print(table)
+    console.print("[green]FE company LinkedIn search complete.[/green]")
 
 
 @app.command(name="krs-enrich", rich_help_panel="Company Enrichment")
@@ -1965,6 +2054,59 @@ def sync_employees_cmd(
     from zl_scraper.pipeline.employee_scraper.sync_employees import run_sync_employees
 
     run_sync_employees(icp_only=not all_clinics)
+
+
+@app.command(name="import-prospeo", rich_help_panel="Employee Scraping")
+def import_prospeo_cmd(
+    csv_path: str = typer.Argument(..., help="Path to Prospeo CSV export file"),
+    show_unmatched: bool = typer.Option(False, "--show-unmatched", help="Show rows that didn't match any clinic domain"),
+) -> None:
+    """Import Prospeo CSV into employees + leads, matching by company domain."""
+    from zl_scraper.pipeline.employee_scraper.import_prospeo import run_import_prospeo
+
+    path = Path(csv_path).expanduser()
+    if not path.exists():
+        console.print(f"[red]File not found:[/red] {path}")
+        raise typer.Exit(1)
+
+    stats = run_import_prospeo(csv_path=str(path), dry_run=show_unmatched)
+
+    if show_unmatched and stats["unmatched"]:
+        um_table = Table(title="Unmatched Rows")
+        um_table.add_column("#", style="dim", justify="right")
+        um_table.add_column("Full Name", style="cyan")
+        um_table.add_column("Company Domain", style="yellow")
+        um_table.add_column("Company Name")
+        um_table.add_column("Job Title")
+
+        for i, row in enumerate(stats["unmatched"], 1):
+            um_table.add_row(
+                str(i),
+                row.get("Full name", ""),
+                row.get("Company domain", "") or "[red]<empty>[/red]",
+                row.get("Company name", ""),
+                row.get("Job title", ""),
+            )
+        console.print(um_table)
+        console.print(f"\n[yellow]{len(stats['unmatched'])} unmatched rows shown. No data was imported (dry run).[/yellow]")
+        return
+
+    table = Table(title="Prospeo Import Summary")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right", style="bold")
+
+    table.add_row("Total CSV rows", str(stats["total_rows"]))
+    table.add_row("Matched to clinic", str(stats["matched"]))
+    table.add_row("No domain in CSV", str(stats["no_domain"]))
+    table.add_row("Domain not in DB", str(stats["no_match"]))
+    table.add_section()
+    table.add_row("Employees created", str(stats["emp_created"]))
+    table.add_row("Employees skipped", str(stats["emp_skipped"]))
+    table.add_section()
+    table.add_row("Leads created", str(stats["lead_created"]))
+    table.add_row("Leads skipped", str(stats["lead_skipped"]))
+
+    console.print(table)
 
 
 if __name__ == "__main__":

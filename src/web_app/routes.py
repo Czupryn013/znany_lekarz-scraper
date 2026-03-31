@@ -143,38 +143,74 @@ def get_neighbors(
 @router.get("/pathfind")
 def pathfind(
     request: Request,
-    from_clinic: str = Query(..., description="Comma-separated clinic IDs"),
-    to_clinic: int = Query(...),
+    from_clinic: str | None = Query(default=None, description="Comma-separated clinic IDs"),
+    from_doctor: int | None = Query(default=None),
+    to_clinic: int | None = Query(default=None),
+    to_doctor: int | None = Query(default=None),
     k: int = Query(default=5, ge=1, le=20),
     merge_nip: bool = Query(default=False),
     db: Session = Depends(_get_db),
 ):
-    """Find k diverse shortest paths between clinic(s) and a target clinic."""
+    """Find k diverse shortest paths between doctor/clinic endpoints."""
     c2d, d2c = _graph(request, merge_nip)
 
-    from_ids = []
-    for s in from_clinic.split(","):
-        s = s.strip()
-        if s.isdigit():
-            from_ids.append(int(s))
+    # Resolve "from" to clinic IDs
+    from_doctor_id = None
+    if from_doctor is not None:
+        from_doctor_id = from_doctor
+        from_ids = list(d2c.get(from_doctor, set()))
+        if not from_ids:
+            return {"error": f"Doctor {from_doctor} has no clinic connections"}
+    elif from_clinic is not None:
+        from_ids = []
+        for s in from_clinic.split(","):
+            s = s.strip()
+            if s.isdigit():
+                from_ids.append(int(s))
+        if not from_ids:
+            return {"error": "No valid from_clinic IDs provided"}
+    else:
+        return {"error": "Provide from_clinic or from_doctor"}
 
-    if not from_ids:
-        return {"error": "No valid from_clinic IDs provided"}
+    # Resolve "to" to clinic IDs
+    to_doctor_id = None
+    if to_doctor is not None:
+        to_doctor_id = to_doctor
+        to_clinic_ids = list(d2c.get(to_doctor, set()))
+        if not to_clinic_ids:
+            return {"error": f"Doctor {to_doctor} has no clinic connections"}
+    elif to_clinic is not None:
+        to_clinic_ids = [to_clinic]
+    else:
+        return {"error": "Provide to_clinic or to_doctor"}
 
+    # Validate clinic existence
     for cid in from_ids:
         if cid not in c2d:
             return {"error": f"Clinic {cid} not found in graph"}
-    if to_clinic not in c2d:
-        return {"error": f"Clinic {to_clinic} not found in graph"}
+    for cid in to_clinic_ids:
+        if cid not in c2d:
+            return {"error": f"Clinic {cid} not found in graph"}
 
-    # Run pathfinding from each start clinic, merge and sort by length
+    # Run pathfinding from each start clinic to each target clinic
     raw_paths = []
     for fid in from_ids:
-        raw_paths.extend(yen_k_shortest_paths(c2d, d2c, fid, to_clinic, k=k))
+        for tid in to_clinic_ids:
+            raw_paths.extend(yen_k_shortest_paths(c2d, d2c, fid, tid, k=k))
     raw_paths.sort(key=len)
     raw_paths = raw_paths[:k]
 
-    # collect all node IDs for batch metadata fetch
+    # Prepend/append doctor nodes to paths if doctor endpoints were used
+    if from_doctor_id is not None:
+        for i, path in enumerate(raw_paths):
+            if path and path[0] != ("doctor", from_doctor_id):
+                raw_paths[i] = [("doctor", from_doctor_id)] + list(path)
+    if to_doctor_id is not None:
+        for i, path in enumerate(raw_paths):
+            if path and path[-1] != ("doctor", to_doctor_id):
+                raw_paths[i] = list(path) + [("doctor", to_doctor_id)]
+
+    # Collect all node IDs for batch metadata fetch
     all_clinic_ids: set[int] = set()
     all_doctor_ids: set[int] = set()
     for path in raw_paths:
@@ -228,18 +264,30 @@ def search_specs(
 @router.get("/find-by-specialization")
 def find_by_spec(
     request: Request,
-    from_clinic: int = Query(...),
+    from_clinic: int | None = Query(default=None),
+    from_doctor: int | None = Query(default=None),
     spec_ids: str = Query(..., description="Comma-separated specialization IDs"),
     hops: int = Query(default=3, ge=1, le=8),
     merge_nip: bool = Query(default=False),
     db: Session = Depends(_get_db),
 ):
-    """Find doctors with target specializations reachable from a clinic within N hops."""
+    """Find doctors with target specializations reachable from a clinic or doctor."""
     c2d, d2c = _graph(request, merge_nip)
     doctor_specs_map = request.app.state.doctor_specs
 
-    if from_clinic not in c2d:
-        return {"error": f"Clinic {from_clinic} not found in graph"}
+    # Resolve start point
+    start_clinics = []
+    start_doctors = None
+    if from_doctor is not None:
+        if from_doctor not in d2c:
+            return {"error": f"Doctor {from_doctor} not found in graph"}
+        start_doctors = [from_doctor]
+    elif from_clinic is not None:
+        if from_clinic not in c2d:
+            return {"error": f"Clinic {from_clinic} not found in graph"}
+        start_clinics = [from_clinic]
+    else:
+        return {"error": "Provide from_clinic or from_doctor"}
 
     target_ids = set()
     for s in spec_ids.split(","):
@@ -251,12 +299,14 @@ def find_by_spec(
         return {"error": "No valid specialization IDs provided"}
 
     logger.info(
-        "Spec search: clinic=%d, specs=%s, hops=%d, doctor_specs_size=%d",
-        from_clinic, target_ids, hops, len(doctor_specs_map),
+        "Spec search: from=%s, specs=%s, hops=%d, doctor_specs_size=%d",
+        f"doctor={from_doctor}" if from_doctor else f"clinic={from_clinic}",
+        target_ids, hops, len(doctor_specs_map),
     )
 
     result = find_doctors_by_specialization(
-        c2d, d2c, [from_clinic], target_ids, doctor_specs_map, max_hops=hops,
+        c2d, d2c, start_clinics, target_ids, doctor_specs_map,
+        max_hops=hops, start_doctors=start_doctors,
     )
     logger.info("Spec search result: %d doctors found", len(result["results"]))
 

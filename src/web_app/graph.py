@@ -153,22 +153,45 @@ def find_doctors_by_specialization(
     doctor_specs: dict[int, set[int]],
     max_hops: int = 3,
     max_results: int = 50,
+    start_doctors: list[int] | None = None,
 ) -> dict:
-    """BFS from one or more clinics to find doctors with target specializations within max_hops.
+    """BFS from clinics/doctors to find doctors with target specializations within max_hops.
 
     Phase 1: lightweight BFS on raw IDs only (no node/edge building) — explores full graph.
     Phase 2: trace back paths from matched doctors to start, build subgraph from those paths only.
     """
+    # Resolve start_doctors to their clinics and merge with start_clinics
+    resolved_from_doctors: set[int] = set()
+    if start_doctors:
+        for doc_id in start_doctors:
+            clinics = d2c.get(doc_id, set())
+            resolved_from_doctors.update(clinics)
+
+    all_start_clinics = list(set(start_clinics) | resolved_from_doctors)
+
     # Phase 1: BFS — just visited + parent pointers
     parent: dict[tuple[str, int], tuple[str, int] | None] = {}
     depth_map: dict[tuple[str, int], int] = {}
     queue: deque[tuple[str, int, int]] = deque()
 
-    for sc in start_clinics:
-        start = ("clinic", sc)
-        queue.append((*start, 0))
-        parent[start] = None
-        depth_map[start] = 0
+    # If starting from doctors, add them as roots and their clinics as depth=1
+    if start_doctors:
+        for doc_id in start_doctors:
+            doc_node = ("doctor", doc_id)
+            parent[doc_node] = None
+            depth_map[doc_node] = 0
+            for cli_id in d2c.get(doc_id, set()):
+                cli_node = ("clinic", cli_id)
+                if cli_node not in parent:
+                    parent[cli_node] = doc_node
+                    depth_map[cli_node] = 1
+                    queue.append(("clinic", cli_id, 1))
+    else:
+        for sc in all_start_clinics:
+            start = ("clinic", sc)
+            queue.append((*start, 0))
+            parent[start] = None
+            depth_map[start] = 0
 
     results: list[dict] = []
     found_doctors: set[int] = set()
