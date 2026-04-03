@@ -293,6 +293,7 @@ function initCy() {
             if (d.locations_count > 1) {
                 html += `<div class="tt-locations">${d.locations_count} locations (merged by NIP)</div>`;
             }
+            if (d.nip) html += `<div class="tt-contact"><div><span class="label">NIP:</span> <span class="value">${esc(d.nip)}</span></div></div>`;
             if (d.website) html += `<div class="tt-contact"><div><span class="label">Web:</span> <span class="value">${esc(d.website)}</span></div></div>`;
             if (d.specializations_str) {
                 html += '<div class="tt-specs">';

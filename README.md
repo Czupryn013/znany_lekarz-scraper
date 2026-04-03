@@ -29,6 +29,13 @@ A modular pipeline for scraping and enriching clinic data from ZnanyLekarz.pl.
    alembic upgrade head
    ```
 
+## Quick Start (Makefile)
+
+```bash
+make web              # Start the web app (port 8000, hot reload)
+make cli CMD="status" # Run any CLI command
+```
+
 ## Usage
 
 ### Discover clinics
@@ -191,6 +198,21 @@ python src/zl_scraper/cli.py enrich-phones --retry-no-phone
 python src/zl_scraper/cli.py enrich-phones --retry-linkedin
 ```
 
+### Web App
+
+```bash
+make web
+# or manually:
+cd src && python -m uvicorn web_app.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Available pages:
+- `/` — Doctor-Clinic network graph
+- `/leads` — Lead-Clinic network graph
+- `/analytics` — Clinic market analytics dashboard (requires `DEBUG_VIEWS=true`)
+
+The analytics dashboard shows interactive charts for clinic distribution analysis: doctor count histograms, location counts, ICP breakdown, legal entity types, top specializations, enrichment funnel, and discovery timeline. All charts support an ICP-only filter toggle.
+
 ## Proxy Waterfall
 
 The scraper uses a waterfall proxy strategy, trying tiers from cheapest to most expensive:
@@ -223,3 +245,4 @@ If a tier returns a non-200 status or a network error, the request automatically
 | `REQUEST_TIMEOUT` | `10` | HTTP request timeout in seconds |
 | `MAX_RETRIES` | `3` | Retry count on transient failures |
 | `RETRY_WAIT_MULTIPLIER` | `2` | Exponential backoff multiplier |
+| `DEBUG_VIEWS` | `false` | Enable analytics dashboard at `/analytics` |

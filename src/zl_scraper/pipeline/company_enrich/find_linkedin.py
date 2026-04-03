@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from zl_scraper.config import APIFY_CONCURRENCY, SERP_KEYWORDS_PER_CALL
+from zl_scraper.config import SERP_CONCURRENCY, SERP_KEYWORDS_PER_CALL
 from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic, LinkedInCandidate
 from zl_scraper.scraping.linkedin_scraper import scrape_linkedin_companies
@@ -134,7 +134,7 @@ async def _validate_maybe_candidates(session: Session) -> tuple[int, int]:
 
     # Collect all unique URLs to scrape
     urls_to_scrape = list({c.url for c in candidates})
-    semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
+    semaphore = asyncio.Semaphore(SERP_CONCURRENCY)
 
     profiles = await scrape_linkedin_companies(urls_to_scrape, semaphore)
 
@@ -199,10 +199,10 @@ async def run_find_linkedin(
             "Found %d clinics needing LinkedIn search (batch=%d, concurrency=%d)",
             total,
             SERP_KEYWORDS_PER_CALL,
-            APIFY_CONCURRENCY,
+            SERP_CONCURRENCY,
         )
 
-        semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
+        semaphore = asyncio.Semaphore(SERP_CONCURRENCY)
         total_yes = 0
         total_maybe = 0
         total_no = 0

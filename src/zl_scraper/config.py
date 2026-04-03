@@ -49,6 +49,7 @@ RETRY_WAIT_MULTIPLIER: float = float(os.getenv("RETRY_WAIT_MULTIPLIER", "2"))
 # ── Apify ────────────────────────────────────────────────────────────────
 APIFY_API_TOKEN: str = os.getenv("APIFY_API_TOKEN", "")
 SERP_KEYWORDS_PER_CALL: int = int(os.getenv("SERP_KEYWORDS_PER_CALL", "20"))
+SERP_CONCURRENCY: int = int(os.getenv("SERP_CONCURRENCY", "5"))
 APIFY_CONCURRENCY: int = int(os.getenv("APIFY_CONCURRENCY", "20"))
 APIFY_ACTOR_TIMEOUT_SECS: int = int(os.getenv("APIFY_ACTOR_TIMEOUT_SECS", "300"))
 DOMAIN_CHECKPOINT_SIZE: int = int(os.getenv("DOMAIN_CHECKPOINT_SIZE", "400"))
@@ -67,6 +68,9 @@ FULLENRICH_POLL_TIMEOUT_SECS: int = int(os.getenv("FULLENRICH_POLL_TIMEOUT_SECS"
 # ── Employee scraping ───────────────────────────────────────────────────
 EMPLOYEE_SCRAPE_CONCURRENCY: int = int(os.getenv("EMPLOYEE_SCRAPE_CONCURRENCY", "1"))
 MAX_EMPLOYEES_PER_COMPANY: int = int(os.getenv("MAX_EMPLOYEES_PER_COMPANY", "20"))
+
+# ── Debug ───────────────────────────────────────────────────────────────
+DEBUG_VIEWS: bool = os.getenv("DEBUG_VIEWS", "false").lower() in ("1", "true", "yes")
 
 # ── ZnanyLekarz URLs ────────────────────────────────────────────────────
 ZL_BASE_URL = "https://www.znanylekarz.pl"

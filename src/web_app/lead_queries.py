@@ -188,13 +188,13 @@ def get_lead_metadata_batch(
     if clinic_ids:
         rows = session.execute(
             text("""
-                SELECT id, name, doctors_count, website_domain, linkedin_url
+                SELECT id, name, doctors_count, website_domain, linkedin_url, nip
                 FROM clinics WHERE id = ANY(:ids)
             """),
             {"ids": clinic_ids},
         ).fetchall()
         clinics = {
-            r[0]: {"name": r[1], "doctors_count": r[2], "website": r[3], "linkedin": r[4]}
+            r[0]: {"name": r[1], "doctors_count": r[2], "website": r[3], "linkedin": r[4], "nip": r[5]}
             for r in rows
         }
 

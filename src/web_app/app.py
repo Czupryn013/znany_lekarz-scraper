@@ -19,6 +19,7 @@ from web_app.lead_graph import (  # noqa: E402
     load_lead_nip_mapping,
     build_lead_merged_graph,
 )
+from zl_scraper.config import DEBUG_VIEWS  # noqa: E402
 from web_app.routes import router  # noqa: E402
 from web_app.lead_routes import router as lead_router  # noqa: E402
 
@@ -77,6 +78,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Doctor-Clinic & Lead Network", lifespan=lifespan)
 app.include_router(router)
 app.include_router(lead_router)
+
+if DEBUG_VIEWS:
+    from web_app.analytics_routes import router as analytics_router  # noqa: E402
+
+    app.include_router(analytics_router)
+    logger.info("DEBUG_VIEWS enabled — analytics routes registered at /analytics")
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -90,3 +98,11 @@ def index():
 def leads_page():
     """Serve the lead-clinic frontend."""
     return FileResponse(STATIC_DIR / "leads.html")
+
+
+if DEBUG_VIEWS:
+
+    @app.get("/analytics")
+    def analytics_page():
+        """Serve the clinic market analytics dashboard."""
+        return FileResponse(STATIC_DIR / "analytics.html")

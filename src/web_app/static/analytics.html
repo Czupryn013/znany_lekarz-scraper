@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinic Market Analytics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #f8f9fb;
+            --bg-card: #ffffff;
+            --border: #e2e5e9;
+            --text: #1a1a2e;
+            --text-muted: #6b7280;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #16a34a;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --purple: #7c3aed;
+            --radius: 10px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+        /* Top bar */
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 24px; background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            position: sticky; top: 0; z-index: 50;
+        }
+        .topbar h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+        .topbar .controls { display: flex; align-items: center; gap: 12px; }
+        .topbar label { font-size: 13px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .topbar input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+        .topbar a {
+            font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 500;
+        }
+        .topbar a:hover { text-decoration: underline; }
+
+        /* KPI cards */
+        .kpi-row {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px; padding: 20px 24px 0;
+        }
+        .kpi-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 16px 18px; text-align: center;
+        }
+        .kpi-card .value { font-size: 28px; font-weight: 700; color: var(--accent); }
+        .kpi-card .label { font-size: 12px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+        /* Charts grid */
+        .charts-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+            gap: 16px; padding: 20px 24px 40px;
+        }
+        .chart-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px;
+        }
+        .chart-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+        .chart-wrap { position: relative; height: 300px; }
+        .chart-card.tall .chart-wrap { height: 420px; }
+        .chart-card.wide { grid-column: 1 / -1; }
+
+        .section-title { font-size: 15px; font-weight: 700; padding: 24px 24px 0; color: var(--text); letter-spacing: -0.01em; }
+
+        /* Loading */
+        .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <h1>Clinic Market Analytics</h1>
+    <div class="controls">
+        <label><input type="checkbox" id="icp-toggle"> ICP Only</label>
+        <a href="/">Doctor-Clinic Graph</a>
+        <a href="/leads">Lead Graph</a>
+    </div>
+</div>
+
+<div class="kpi-row" id="kpi-row">
+    <div class="loading">Loading totals...</div>
+</div>
+
+<div class="charts-grid" id="charts-grid">
+    <div class="chart-card">
+        <h3>Clinics by Doctor Count</h3>
+        <div class="chart-wrap"><canvas id="chart-doctors"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Clinics by Location Count</h3>
+        <div class="chart-wrap"><canvas id="chart-locations"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>ICP Breakdown</h3>
+        <div class="chart-wrap"><canvas id="chart-icp"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Legal Entity Type</h3>
+        <div class="chart-wrap"><canvas id="chart-legal"></canvas></div>
+    </div>
+    <div class="chart-card wide tall">
+        <h3>Top Specializations by Clinic Count</h3>
+        <div class="chart-wrap"><canvas id="chart-specs"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Enrichment Funnel</h3>
+        <div class="chart-wrap"><canvas id="chart-funnel"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Discovery Timeline</h3>
+        <div class="chart-wrap"><canvas id="chart-timeline"></canvas></div>
+    </div>
+</div>
+
+<h2 class="section-title">Doctor Stats</h2>
+
+<div class="kpi-row" id="doctor-kpi-row">
+    <div class="loading">Loading doctor totals...</div>
+</div>
+
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>Doctor Gender</h3>
+        <div class="chart-wrap"><canvas id="chart-gender"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Doctors by Clinic Count</h3>
+        <div class="chart-wrap"><canvas id="chart-doc-clinics"></canvas></div>
+    </div>
+    <div class="chart-card">
+        <h3>Doctors by Positive Opinions</h3>
+        <div class="chart-wrap"><canvas id="chart-doc-opinions"></canvas></div>
+    </div>
+    <div class="chart-card wide tall">
+        <h3>Top Specializations by Doctor Count</h3>
+        <div class="chart-wrap"><canvas id="chart-doc-specs"></canvas></div>
+    </div>
+</div>
+
+<script>
+const API = '/api/analytics';
+const charts = {};
+
+const PALETTE = [
+    '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+    '#ec4899','#06b6d4','#84cc16','#f97316','#6366f1',
+    '#14b8a6','#e11d48','#a855f7','#0ea5e9','#22c55e',
+    '#eab308','#d946ef','#64748b','#f43f5e','#2dd4bf',
+];
+
+function q(sel) { return document.querySelector(sel); }
+
+async function fetchJSON(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+}
+
+function makeOrUpdate(id, config) {
+    if (charts[id]) {
+        charts[id].data = config.data;
+        charts[id].update();
+    } else {
+        charts[id] = new Chart(q('#' + id).getContext('2d'), config);
+    }
+}
+
+const datalabelPlugin = {
+    id: 'datalabels-inline',
+    afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        chart.data.datasets.forEach((ds, i) => {
+            const meta = chart.getDatasetMeta(i);
+            meta.data.forEach((bar, idx) => {
+                const val = ds.data[idx];
+                if (val == null || val === 0) return;
+                ctx.save();
+                ctx.fillStyle = '#374151';
+                ctx.font = '11px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                if (chart.options.indexAxis === 'y') {
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(val.toLocaleString(), bar.x + 4, bar.y);
+                } else {
+                    ctx.fillText(val.toLocaleString(), bar.x, bar.y - 4);
+                }
+                ctx.restore();
+            });
+        });
+    },
+};
+
+function barChart(id, data, label, color) {
+    const values = data.map(d => d.count);
+    const max = Math.max(...values);
+    const min = Math.min(...values.filter(v => v > 0));
+    const useLog = max > 0 && min > 0 && max / min > 50;
+
+    makeOrUpdate(id, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{ label, data: values, backgroundColor: color || PALETTE[0], borderRadius: 4 }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { type: useLog ? 'logarithmic' : 'linear', beginAtZero: !useLog } },
+        },
+        plugins: [datalabelPlugin],
+    });
+}
+
+function horizontalBarChart(id, data, label) {
+    makeOrUpdate(id, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{ label, data: data.map(d => d.count), backgroundColor: PALETTE.slice(0, data.length), borderRadius: 4 }],
+        },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } },
+        },
+        plugins: [datalabelPlugin],
+    });
+}
+
+function pieChart(id, data) {
+    makeOrUpdate(id, {
+        type: 'doughnut',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{ data: data.map(d => d.count), backgroundColor: PALETTE.slice(0, data.length), borderWidth: 0 }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
+    });
+}
+
+function lineChart(id, data, label) {
+    makeOrUpdate(id, {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{
+                label, data: data.map(d => d.count),
+                borderColor: PALETTE[0], backgroundColor: 'rgba(59,130,246,0.1)',
+                fill: true, tension: 0.3, pointRadius: 3,
+            }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+    });
+}
+
+function funnelChart(id, data) {
+    makeOrUpdate(id, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.label),
+            datasets: [{ label: 'Clinics', data: data.map(d => d.count), backgroundColor: PALETTE.slice(0, data.length), borderRadius: 4 }],
+        },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } },
+        },
+        plugins: [datalabelPlugin],
+    });
+}
+
+async function renderKPIs() {
+    try {
+        const t = await fetchJSON(`${API}/totals`);
+        q('#kpi-row').innerHTML = [
+            { value: t.total, label: 'Total Clinics' },
+            { value: t.icp, label: 'ICP Matches' },
+            { value: t.enriched, label: 'Enriched' },
+            { value: t.with_nip, label: 'With NIP' },
+            { value: t.with_website, label: 'With Website' },
+            { value: t.with_linkedin, label: 'With LinkedIn' },
+        ].map(k => `<div class="kpi-card"><div class="value">${k.value.toLocaleString()}</div><div class="label">${k.label}</div></div>`).join('');
+    } catch (e) {
+        q('#kpi-row').innerHTML = `<div class="loading">Failed to load totals</div>`;
+    }
+}
+
+async function renderCharts() {
+    const icp = q('#icp-toggle').checked;
+    const qs = icp ? '?icp_only=true' : '';
+
+    const [doctors, locations, icpData, legal, specs, funnel, timeline] = await Promise.all([
+        fetchJSON(`${API}/doctors-distribution${qs}`),
+        fetchJSON(`${API}/locations-distribution${qs}`),
+        fetchJSON(`${API}/icp-breakdown`),
+        fetchJSON(`${API}/legal-type${qs}`),
+        fetchJSON(`${API}/specializations${qs}`),
+        fetchJSON(`${API}/enrichment-funnel${qs}`),
+        fetchJSON(`${API}/discovery-timeline${qs}`),
+    ]);
+
+    barChart('chart-doctors', doctors, 'Clinics', '#3b82f6');
+    barChart('chart-locations', locations, 'Clinics', '#10b981');
+    pieChart('chart-icp', icpData);
+    pieChart('chart-legal', legal);
+    horizontalBarChart('chart-specs', specs, 'Clinics');
+    funnelChart('chart-funnel', funnel);
+    lineChart('chart-timeline', timeline, 'Discovered');
+}
+
+async function renderDoctorKPIs() {
+    try {
+        const t = await fetchJSON(`${API}/doctor-totals`);
+        q('#doctor-kpi-row').innerHTML = [
+            { value: t.total, label: 'Total Doctors' },
+            { value: t.male, label: 'Male' },
+            { value: t.female, label: 'Female' },
+            { value: t.unknown_gender, label: 'Unknown Gender' },
+            { value: t.with_opinions, label: 'With Opinions' },
+        ].map(k => `<div class="kpi-card"><div class="value">${k.value.toLocaleString()}</div><div class="label">${k.label}</div></div>`).join('');
+    } catch (e) {
+        q('#doctor-kpi-row').innerHTML = `<div class="loading">Failed to load doctor totals</div>`;
+    }
+}
+
+async function renderDoctorCharts() {
+    const [gender, docClinics, opinions, docSpecs] = await Promise.all([
+        fetchJSON(`${API}/doctor-gender`),
+        fetchJSON(`${API}/doctor-clinics-distribution`),
+        fetchJSON(`${API}/doctor-opinions`),
+        fetchJSON(`${API}/doctor-specializations`),
+    ]);
+
+    pieChart('chart-gender', gender);
+    barChart('chart-doc-clinics', docClinics, 'Doctors', '#8b5cf6');
+    barChart('chart-doc-opinions', opinions, 'Doctors', '#f59e0b');
+    horizontalBarChart('chart-doc-specs', docSpecs, 'Doctors');
+}
+
+async function init() {
+    await Promise.all([renderKPIs(), renderDoctorKPIs()]);
+    await Promise.all([renderCharts(), renderDoctorCharts()]);
+
+    q('#icp-toggle').addEventListener('change', () => renderCharts());
+}
+
+init();
+</script>
+</body>
+</html>

@@ -142,10 +142,10 @@ def get_node_metadata_batch(
 
     if clinic_ids:
         rows = session.execute(
-            text("SELECT id, name, doctors_count FROM clinics WHERE id = ANY(:ids)"),
+            text("SELECT id, name, doctors_count, nip FROM clinics WHERE id = ANY(:ids)"),
             {"ids": clinic_ids},
         ).fetchall()
-        clinics = {r[0]: {"name": r[1], "doctors_count": r[2]} for r in rows}
+        clinics = {r[0]: {"name": r[1], "doctors_count": r[2], "nip": r[3]} for r in rows}
 
     if doctor_ids:
         rows = session.execute(

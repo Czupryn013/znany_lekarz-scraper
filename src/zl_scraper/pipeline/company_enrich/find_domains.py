@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from zl_scraper.config import APIFY_CONCURRENCY, DOMAIN_CHECKPOINT_SIZE
+from zl_scraper.config import DOMAIN_CHECKPOINT_SIZE, SERP_CONCURRENCY
 from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic
 from zl_scraper.scraping.llm import validate_domain
@@ -153,10 +153,10 @@ async def run_find_domains(limit: int | None = None, retry_not_found: bool = Fal
             "Found %d clinics needing domain search (checkpoint=%d, concurrency=%d)",
             total,
             DOMAIN_CHECKPOINT_SIZE,
-            APIFY_CONCURRENCY,
+            SERP_CONCURRENCY,
         )
 
-        semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
+        semaphore = asyncio.Semaphore(SERP_CONCURRENCY)
         total_found = 0
         total_not_found = 0
         total_skipped = 0

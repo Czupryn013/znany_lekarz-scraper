@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from zl_scraper.config import APIFY_CONCURRENCY, DOMAIN_CHECKPOINT_SIZE
+from zl_scraper.config import DOMAIN_CHECKPOINT_SIZE, SERP_CONCURRENCY
 from zl_scraper.db.engine import SessionLocal
 from zl_scraper.db.models import Clinic
 from zl_scraper.scraping.llm import extract_nip
@@ -52,22 +52,37 @@ async def _process_batch(
     not_found = 0
     skipped = 0
 
-    for clinic, serp_resp in zip(clinics, serp_responses):
+    # Build a map of search_term -> SerpResponse to match results by search term, not position
+    responses_by_term: dict[str, SerpResponse] = {}
+    for serp_resp in serp_responses:
+        if serp_resp and serp_resp.search_term:
+            responses_by_term[serp_resp.search_term] = serp_resp
+
+    for clinic in clinics:
+        expected_search_term = _build_nip_keyword(clinic)
+        serp_resp = responses_by_term.get(expected_search_term)
+
         if serp_resp is None:
             skipped += 1
-            logger.debug("Skipping clinic %d (%s) — SERP call failed", clinic.id, clinic.name)
-            continue
-
-        if not serp_resp.search_term:
-            skipped += 1
-            logger.debug("Skipping clinic %d (%s) — SERP returned undefined search_term", clinic.id, clinic.name)
+            logger.debug("Skipping clinic %d (%s) — SERP call failed for search term: %s", 
+                        clinic.id, clinic.name, expected_search_term)
+            clinic.nip_searched_at = datetime.utcnow()
+            session.commit()
             continue
 
         if len(serp_resp.results) == 0:
             not_found += 1
             clinic.nip_searched_at = datetime.utcnow()
             logger.debug("Clinic %d (%s) — SERP returned 0 results for NIP query", clinic.id, clinic.name)
+            session.commit()
             continue
+
+        # Log SERP results for debugging
+        logger.info("Clinic %d (%s) — SERP search_term: %s, received %d results", 
+                    clinic.id, clinic.name, serp_resp.search_term, len(serp_resp.results))
+        for i, result in enumerate(serp_resp.results, 1):
+            logger.info("  [%d] URL: %s | Title: %s | Desc: %s", 
+                        i, result.url, result.title, result.description[:100])
 
         nip = await extract_nip(clinic.name, clinic.website_domain, serp_resp.results)
 
@@ -77,11 +92,13 @@ async def _process_batch(
             logger.info("Clinic %d (%s) — NIP found: %s", clinic.id, clinic.name, nip)
         else:
             not_found += 1
-            logger.info("Clinic %d (%s) — no NIP extracted from %d results", clinic.id, clinic.name, len(serp_resp.results))
+            logger.warning("Clinic %d (%s) — LLM failed to extract NIP from %d results. Full results: %s", 
+                          clinic.id, clinic.name, len(serp_resp.results),
+                          [(r.url, r.title, r.description[:100]) for r in serp_resp.results])
 
         clinic.nip_searched_at = datetime.utcnow()
+        session.commit()
 
-    session.commit()
     return found, not_found, skipped
 
 
@@ -102,10 +119,10 @@ async def run_find_nip(limit: int | None = None, icp_only: bool = True) -> None:
             "Found %d clinics needing NIP search (checkpoint=%d, concurrency=%d)",
             total,
             DOMAIN_CHECKPOINT_SIZE,
-            APIFY_CONCURRENCY,
+            SERP_CONCURRENCY,
         )
 
-        semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
+        semaphore = asyncio.Semaphore(SERP_CONCURRENCY)
         total_found = 0
         total_not_found = 0
         total_skipped = 0

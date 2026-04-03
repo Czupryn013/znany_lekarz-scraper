@@ -10,7 +10,7 @@ from apify_client import ApifyClientAsync
 from zl_scraper.config import (
     APIFY_ACTOR_TIMEOUT_SECS,
     APIFY_API_TOKEN,
-    APIFY_CONCURRENCY,
+    SERP_CONCURRENCY,
     SERP_KEYWORDS_PER_CALL,
 )
 from zl_scraper.utils.logging import get_logger
@@ -18,6 +18,15 @@ from zl_scraper.utils.logging import get_logger
 logger = get_logger("serp")
 
 SERP_ACTOR_ID = "563JCPLOqM1kMmbbP"
+_ALLOWED_LIMITS = [10, 20, 30, 40, 50, 100]
+
+
+def _snap_limit(requested: int) -> str:
+    """Snap a requested result count to the nearest allowed actor limit value."""
+    for limit in _ALLOWED_LIMITS:
+        if requested <= limit:
+            return str(limit)
+    return "all"
 
 
 @dataclass
@@ -79,7 +88,7 @@ async def _run_single_serp(
         "hl": "pl",
         "include_merged": False,
         "keyword": keyword_str,
-        "limit": str(results_per_keyword),
+        "limit": _snap_limit(results_per_keyword),
         "lr": "lang_pl",
     }
 
@@ -124,13 +133,14 @@ async def run_serp_search(
     keywords: list[str],
     semaphore: asyncio.Semaphore | None = None,
     keywords_per_call: int | None = None,
+    results_per_keyword: int = 10,
 ) -> list[SerpResponse | None]:
     """Run SERP searches for all keywords, chunked and parallelised via Apify actors."""
     if not keywords:
         return []
 
     if semaphore is None:
-        semaphore = asyncio.Semaphore(APIFY_CONCURRENCY)
+        semaphore = asyncio.Semaphore(SERP_CONCURRENCY)
 
     chunk_size = keywords_per_call or SERP_KEYWORDS_PER_CALL
 
@@ -144,7 +154,7 @@ async def run_serp_search(
         len(keywords),
         len(chunks),
         chunk_size,
-        APIFY_CONCURRENCY,
+        SERP_CONCURRENCY,
     )
 
     client = ApifyClientAsync(token=APIFY_API_TOKEN)
@@ -152,7 +162,7 @@ async def run_serp_search(
     async def _run_chunk(chunk: list[str], chunk_idx: int) -> tuple[int, list[SerpResponse | None] | None]:
         async with semaphore:
             logger.info("Chunk %d/%d — launching SERP for %d keywords", chunk_idx + 1, len(chunks), len(chunk))
-            responses = await _run_single_serp(client, chunk)
+            responses = await _run_single_serp(client, chunk, results_per_keyword=results_per_keyword)
             return chunk_idx, responses
 
     tasks = [_run_chunk(chunk, i) for i, chunk in enumerate(chunks)]

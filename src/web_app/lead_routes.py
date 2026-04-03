@@ -48,6 +48,7 @@ def _enrich_lead_nodes(
             meta = metadata["clinics"].get(rid, {})
             node["label"] = meta.get("name", f"Clinic {rid}")
             node["doctors_count"] = meta.get("doctors_count")
+            node["nip"] = meta.get("nip")
             node["website"] = meta.get("website")
             node["linkedin"] = meta.get("linkedin")
             node["specializations"] = specializations.get(rid, [])

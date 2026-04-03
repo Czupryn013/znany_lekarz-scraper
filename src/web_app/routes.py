@@ -51,6 +51,7 @@ def _enrich_nodes(
             meta = metadata["clinics"].get(rid, {})
             node["label"] = meta.get("name", f"Clinic {rid}")
             node["doctors_count"] = meta.get("doctors_count")
+            node["nip"] = meta.get("nip")
             node["specializations"] = clinic_specs.get(rid, [])
             if rep_to_members and rid in rep_to_members:
                 node["locations_count"] = len(rep_to_members[rid])

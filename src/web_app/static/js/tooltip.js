@@ -20,6 +20,8 @@ export function setupTooltips() {
         if (type === 'clinic') {
             const dc = node.data('doctors_count');
             if (dc) html += ` &middot; ${dc} doctors`;
+            const nip = node.data('nip');
+            if (nip) html += ` &middot; NIP: ${nip}`;
         }
         if (type === 'doctor' && gender !== null && gender !== undefined) {
             html += ` &middot; <span class="tt-gender">${genderIcon(gender)} ${genderLabel(gender)}</span>`;
