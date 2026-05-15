@@ -45,14 +45,20 @@ def scrape_krs(page: Page, nip: str) -> KRSResult:
         nip_input.fill(nip)
         print(f"    ✓ Entered NIP: {nip}")
         
-        # Click search button
+        # Click search button — small cooldown first so the button is ready
         search_button = page.locator('.ds-panel-footer > div > div:nth-of-type(2) button')
         search_button.scroll_into_view_if_needed()
+        time.sleep(2)
         search_button.click()
         print("    ✓ Clicked search button")
-        
-        # Wait for network to be idle (search results to load)
-        page.wait_for_load_state("networkidle")
+
+        # Wait for network to be idle (search results to load); retry once if stuck after 5s
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            print("    ⚠ Search appears stuck after 5s — retrying click")
+            search_button.click()
+            page.wait_for_load_state("networkidle")
         time.sleep(1)
         
         # Check if "Brak danych" (no data) message appears
@@ -123,7 +129,7 @@ def _process_krs_row(page: Page, row, idx: int, total: int) -> Optional[KRSResul
         
         # Wait for navigation
         page.wait_for_load_state("networkidle")
-        time.sleep(0.5)
+        time.sleep(2)
         
         # Check if entity is deleted from KRS
         try:
@@ -133,7 +139,7 @@ def _process_krs_row(page: Page, row, idx: int, total: int) -> Optional[KRSResul
                 page.remove_listener("request", capture_apikey)
                 page.go_back()
                 page.wait_for_load_state("networkidle")
-                time.sleep(0.5)
+                time.sleep(2)
                 return None
         except:
             pass
@@ -170,7 +176,7 @@ def _process_krs_row(page: Page, row, idx: int, total: int) -> Optional[KRSResul
         # Go back to search page
         page.go_back()
         page.wait_for_load_state("networkidle")
-        time.sleep(0.5)
+        time.sleep(2)
         
         # Extract register type (P or S) from URL
         register_type = _extract_typ_from_url(details_url)

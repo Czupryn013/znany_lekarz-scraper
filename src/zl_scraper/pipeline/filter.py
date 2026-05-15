@@ -28,7 +28,7 @@ DEFAULT_EXCLUDED_KEYWORDS: list[str] = [
     "geriatra",
     "fizjo",
     "weterynarz",
-    "stomatolog",
+    # "stomatolog",
     "lekarz rodzinny",
     "położna",
     "logopeda",
@@ -36,7 +36,7 @@ DEFAULT_EXCLUDED_KEYWORDS: list[str] = [
     "medycyny estetycznej",
     "rehabilitac",
     "biegły sądowy",
-    "chirurg",
+    # "chirurg",
     "lekarz pierwszego kontaktu",
 ]
 

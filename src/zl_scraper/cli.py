@@ -828,6 +828,8 @@ def export_leads(
 
     Filters are stackable. If no filters are provided, defaults to phone-only.
     """
+    from sqlalchemy import func
+
     session = SessionLocal()
     try:
         query = session.query(Lead).order_by(Lead.id)
@@ -848,6 +850,7 @@ def export_leads(
         role_rows = (
             session.query(
                 lead_clinic_roles.c.lead_id,
+                Clinic.id,
                 Clinic.name,
                 Clinic.legal_name,
                 Clinic.website_domain,
@@ -858,10 +861,16 @@ def export_leads(
             .all()
         )
 
+        doctor_counts: dict[int, int] = dict(
+            session.query(clinic_doctors.c.clinic_id, func.count(clinic_doctors.c.doctor_id))
+            .group_by(clinic_doctors.c.clinic_id)
+            .all()
+        )
+
         companies_by_lead: dict[int, list[str]] = {}
         companies_index: dict[int, dict[str, dict]] = {}
 
-        for lead_id, clinic_name, legal_name, domain, role in role_rows:
+        for lead_id, clinic_id, clinic_name, legal_name, domain, role in role_rows:
             company_base = legal_name or clinic_name or "Unknown company"
             domain_text = (domain or "").strip()
             domain_key = domain_text.lower()
@@ -878,6 +887,7 @@ def export_leads(
             if dedup_key not in lead_companies:
                 lead_companies[dedup_key] = {
                     "label": company_label,
+                    "clinic_id": clinic_id,
                     "roles": [],
                 }
 
@@ -889,7 +899,9 @@ def export_leads(
             bullets = []
             for entry in grouped.values():
                 roles_text = ", ".join(entry["roles"])
-                bullets.append(f"- {entry['label']} — {roles_text}")
+                count = doctor_counts.get(entry["clinic_id"], 0)
+                doctors_text = f", {count} doctors" if count else ""
+                bullets.append(f"- {entry['label']} — {roles_text}{doctors_text}")
             companies_by_lead[lead_id] = bullets
 
         rows = []

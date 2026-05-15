@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAM Calculator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #f8f9fb;
+            --bg-card: #ffffff;
+            --border: #e2e5e9;
+            --text: #1a1a2e;
+            --text-muted: #6b7280;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #16a34a;
+            --orange: #f59e0b;
+            --red: #ef4444;
+            --purple: #7c3aed;
+            --radius: 10px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+        /* Top bar */
+        .topbar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 12px 24px; background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            position: sticky; top: 0; z-index: 50;
+        }
+        .topbar h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+        .nav-links { display: flex; gap: 4px; }
+        .nav-links a {
+            padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+            text-decoration: none; color: var(--text-muted); border: 1px solid var(--border);
+            transition: all 0.15s;
+        }
+        .nav-links a.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .nav-links a:hover:not(.active) { background: var(--bg); color: var(--text); }
+
+        /* Layout */
+        .page { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        /* Filter card */
+        .filter-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px 24px; margin-bottom: 24px;
+        }
+        .filter-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+        .filter-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .filter-group { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+        .filter-group label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .filter-group input[type="number"] {
+            padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+            font-size: 14px; font-family: var(--font); background: var(--bg); color: var(--text);
+            width: 120px; outline: none;
+        }
+        .filter-group input[type="number"]:focus { border-color: var(--accent); }
+
+        /* Spec tag input */
+        .spec-input-wrap {
+            display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 260px; position: relative;
+        }
+        .spec-input-wrap label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .spec-tags-box {
+            display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+            padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg); min-height: 38px; cursor: text;
+        }
+        .spec-tags-box:focus-within { border-color: var(--accent); }
+        .spec-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px;
+            padding: 2px 8px; font-size: 12px; color: var(--accent); font-weight: 500;
+        }
+        .spec-tag button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 14px; line-height: 1; }
+        .spec-tag button:hover { color: var(--red); }
+        #spec-search {
+            border: none; outline: none; font-size: 13px; font-family: var(--font);
+            background: transparent; color: var(--text); min-width: 140px; flex: 1;
+        }
+        .autocomplete-dropdown {
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08); max-height: 220px; overflow-y: auto;
+            margin-top: 2px; display: none;
+        }
+        .autocomplete-dropdown.open { display: block; }
+        .ac-item {
+            padding: 8px 12px; font-size: 13px; cursor: pointer;
+            border-bottom: 1px solid var(--border);
+        }
+        .ac-item:last-child { border-bottom: none; }
+        .ac-item:hover { background: #eff6ff; color: var(--accent); }
+
+        /* Keyword textarea filter */
+        .keyword-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+        .keyword-wrap label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .keyword-wrap textarea {
+            padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+            font-size: 13px; font-family: var(--font); background: var(--bg); color: var(--text);
+            resize: vertical; min-height: 80px; outline: none; line-height: 1.5;
+        }
+        .keyword-wrap textarea:focus { border-color: var(--accent); }
+        .keyword-wrap textarea::placeholder { color: var(--text-muted); }
+
+        /* Include/exclude toggle */
+        .kw-mode { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; width: fit-content; }
+        .kw-mode button {
+            padding: 5px 14px; border: none; background: var(--bg); color: var(--text-muted);
+            font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font);
+            transition: all 0.15s;
+        }
+        .kw-mode button.active-exclude { background: #fef2f2; color: #dc2626; }
+        .kw-mode button.active-include { background: #f0fdf4; color: #16a34a; }
+        .kw-mode button:not(.active-exclude):not(.active-include):hover { background: #f1f5f9; }
+
+        /* Keyword breakdown table */
+        .kw-breakdown-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .kw-breakdown-table th { text-align: left; padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+        .kw-breakdown-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+        .kw-breakdown-table tr:last-child td { border-bottom: none; }
+        .kw-breakdown-table tr:hover td { background: #f8faff; }
+        .kw-pill { display: inline-block; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 1px 8px; font-weight: 500; color: var(--accent); }
+
+        .btn-calc {
+            padding: 9px 22px; background: var(--accent); color: #fff;
+            border: none; border-radius: 6px; font-size: 14px; font-weight: 600;
+            cursor: pointer; font-family: var(--font); white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .btn-calc:hover { background: var(--accent-hover); }
+        .btn-calc:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Funnel section */
+        .section-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: var(--text); letter-spacing: -0.01em; }
+
+        .funnel-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 24px; margin-bottom: 24px;
+        }
+        .funnel-steps { display: flex; flex-direction: column; gap: 10px; }
+        .funnel-step {
+            display: grid; grid-template-columns: 200px 1fr 120px 120px;
+            align-items: center; gap: 14px;
+        }
+        .funnel-step-label { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .funnel-bar-wrap { background: #f1f5f9; border-radius: 4px; height: 28px; position: relative; overflow: hidden; }
+        .funnel-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; min-width: 2px; }
+        .funnel-bar.step-0 { background: #3b82f6; }
+        .funnel-bar.step-1 { background: #8b5cf6; }
+        .funnel-bar.step-2 { background: #f59e0b; }
+        .funnel-bar.step-3 { background: #10b981; }
+        .funnel-count { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; }
+        .funnel-count span { font-size: 11px; font-weight: 400; color: var(--text-muted); display: block; }
+        .funnel-pct { font-size: 12px; color: var(--text-muted); text-align: right; }
+
+        .funnel-empty {
+            text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px;
+        }
+
+        /* Distribution charts */
+        .charts-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+            gap: 16px; margin-bottom: 40px;
+        }
+        .chart-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px;
+        }
+        .chart-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+        .chart-wrap { position: relative; height: 300px; }
+        .chart-card.tall .chart-wrap { height: 400px; }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid #fff; border-top-color: transparent;
+            border-radius: 50%; animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="nav-links">
+        <a href="/">Doctors</a>
+        <a href="/leads">Leads</a>
+        <a href="/tam" class="active">TAM</a>
+        <a href="/clinics">Clinics</a>
+    </div>
+    <h1>TAM Calculator</h1>
+</div>
+
+<div class="page">
+
+    <!-- Filters -->
+    <div class="filter-card">
+        <h2>Define your market segment</h2>
+        <div class="filter-row">
+
+            <div class="spec-input-wrap">
+                <label>Specializations (any of)</label>
+                <div class="spec-tags-box" id="spec-tags-box">
+                    <input type="text" id="spec-search" placeholder="Type to add specialization...">
+                </div>
+                <div class="autocomplete-dropdown" id="spec-ac"></div>
+            </div>
+
+            <div class="keyword-wrap">
+                <label>Keyword filter <span style="font-weight:400;text-transform:none;letter-spacing:0">(one per line, partial match)</span></label>
+                <textarea id="kw-textarea" placeholder="stomatolog&#10;ortodont&#10;psychoterapeut"></textarea>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:12px;color:var(--text-muted);">Mode:</span>
+                    <div class="kw-mode" id="kw-mode">
+                        <button id="kw-btn-exclude" class="active-exclude" onclick="setKwMode('exclude')">Exclude &gt;50%</button>
+                        <button id="kw-btn-include" onclick="setKwMode('include')">Include &gt;50%</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <label>Min doctors</label>
+                <input type="number" id="min-doctors" min="0" placeholder="e.g. 3">
+            </div>
+
+            <div class="filter-group">
+                <label>Min locations</label>
+                <input type="number" id="min-locations" min="0" placeholder="e.g. 2">
+            </div>
+
+            <button class="btn-calc" id="btn-calc" onclick="calculate()">Calculate TAM</button>
+        </div>
+    </div>
+
+    <!-- Funnel -->
+    <div class="funnel-card">
+        <div class="section-title">Market Funnel</div>
+        <div id="funnel-container">
+            <div class="funnel-empty">Set filters above and click Calculate to see your TAM funnel.</div>
+        </div>
+    </div>
+
+    <!-- Distributions -->
+    <div id="distributions-section" style="display:none">
+        <div class="section-title">Distribution Breakdown <span style="font-size:12px;font-weight:400;color:var(--text-muted)">(filtered set)</span></div>
+
+        <div id="kw-breakdown-card" class="chart-card" style="display:none;margin-bottom:16px">
+            <h3 id="kw-breakdown-title">Keyword Match Breakdown</h3>
+            <table class="kw-breakdown-table" id="kw-breakdown-table">
+                <thead><tr><th>Keyword</th><th>Clinics with match</th><th>Doctors with match</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card tall">
+                <h3>Top Specializations by Clinic</h3>
+                <div class="chart-wrap"><canvas id="chart-clinic-specs"></canvas></div>
+            </div>
+            <div class="chart-card tall">
+                <h3>Top Specializations by Doctor</h3>
+                <div class="chart-wrap"><canvas id="chart-doc-specs"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Clinics by Doctor Count</h3>
+                <div class="chart-wrap"><canvas id="chart-doc-dist"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Clinics by Location Count</h3>
+                <div class="chart-wrap"><canvas id="chart-loc-dist"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const selectedSpecs = new Map(); // id → name
+let acTimeout = null;
+const charts = {};
+let kwMode = 'exclude';
+
+function setKwMode(mode) {
+    kwMode = mode;
+    document.getElementById('kw-btn-exclude').className = mode === 'exclude' ? 'active-exclude' : '';
+    document.getElementById('kw-btn-include').className = mode === 'include' ? 'active-include' : '';
+}
+
+// ── Specialization autocomplete ────────────────────────────────────────────
+const specSearch = document.getElementById('spec-search');
+const specAc = document.getElementById('spec-ac');
+const specTagsBox = document.getElementById('spec-tags-box');
+
+specTagsBox.addEventListener('click', () => specSearch.focus());
+
+specSearch.addEventListener('input', () => {
+    clearTimeout(acTimeout);
+    const q = specSearch.value.trim();
+    if (q.length < 2) { closeAc(); return; }
+    acTimeout = setTimeout(() => fetchSpecs(q), 200);
+});
+
+specSearch.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeAc();
+});
+
+document.addEventListener('click', e => {
+    if (!specTagsBox.contains(e.target) && !specAc.contains(e.target)) closeAc();
+});
+
+async function fetchSpecs(q) {
+    try {
+        const res = await fetch(`/api/search-specializations?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        renderAc(data.specializations || []);
+    } catch { closeAc(); }
+}
+
+function renderAc(items) {
+    if (!items.length) { closeAc(); return; }
+    specAc.innerHTML = items
+        .filter(s => !selectedSpecs.has(s.id))
+        .slice(0, 12)
+        .map(s => `<div class="ac-item" data-id="${s.id}" data-name="${escHtml(s.name)}">${escHtml(s.name)}</div>`)
+        .join('');
+    specAc.classList.add('open');
+    specAc.querySelectorAll('.ac-item').forEach(el => {
+        el.addEventListener('mousedown', e => {
+            e.preventDefault();
+            addSpec(parseInt(el.dataset.id), el.dataset.name);
+        });
+    });
+}
+
+function closeAc() { specAc.classList.remove('open'); specAc.innerHTML = ''; }
+
+function addSpec(id, name) {
+    if (selectedSpecs.has(id)) return;
+    selectedSpecs.set(id, name);
+    renderTags();
+    specSearch.value = '';
+    closeAc();
+}
+
+function removeSpec(id) {
+    selectedSpecs.delete(id);
+    renderTags();
+}
+
+function renderTags() {
+    const existing = specTagsBox.querySelectorAll('.spec-tag');
+    existing.forEach(el => el.remove());
+    for (const [id, name] of selectedSpecs) {
+        const tag = document.createElement('span');
+        tag.className = 'spec-tag';
+        tag.innerHTML = `${escHtml(name)}<button onclick="removeSpec(${id})" title="Remove">×</button>`;
+        specTagsBox.insertBefore(tag, specSearch);
+    }
+}
+
+// ── Calculate ──────────────────────────────────────────────────────────────
+async function calculate() {
+    const btn = document.getElementById('btn-calc');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Calculating...';
+
+    const params = buildParams();
+
+    try {
+        const [funnelRes, distRes] = await Promise.all([
+            fetch('/api/tam/calculate?' + params).then(r => r.json()),
+            fetch('/api/tam/distributions?' + params).then(r => r.json()),
+        ]);
+        renderFunnel(funnelRes.steps || []);
+        renderDistributions(distRes);
+    } catch (err) {
+        document.getElementById('funnel-container').innerHTML =
+            `<div class="funnel-empty" style="color:var(--red)">Error: ${err.message}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Calculate TAM';
+    }
+}
+
+function buildParams() {
+    const p = new URLSearchParams();
+    if (selectedSpecs.size > 0) p.set('spec_ids', [...selectedSpecs.keys()].join(','));
+    const kw = document.getElementById('kw-textarea').value.trim();
+    if (kw) {
+        p.set('keywords', kw);
+        p.set('keyword_mode', kwMode);
+    }
+    const minDoc = document.getElementById('min-doctors').value;
+    const minLoc = document.getElementById('min-locations').value;
+    if (minDoc) p.set('min_doctors', minDoc);
+    if (minLoc) p.set('min_locations', minLoc);
+    return p.toString();
+}
+
+// ── Funnel rendering ───────────────────────────────────────────────────────
+function renderFunnel(steps) {
+    const container = document.getElementById('funnel-container');
+    if (!steps.length) {
+        container.innerHTML = '<div class="funnel-empty">No data returned.</div>';
+        return;
+    }
+
+    const maxClinics = steps[0].clinics || 1;
+    const colors = ['step-0', 'step-1', 'step-2', 'step-3'];
+
+    const html = `
+        <div class="funnel-steps">
+            <div class="funnel-step" style="margin-bottom:4px">
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">Step</div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">Volume</div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;text-align:right">Clinics</div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;text-align:right">Retention</div>
+            </div>
+            ${steps.map((s, i) => {
+                const pct = i === 0 ? 100 : Math.round((s.clinics / maxClinics) * 100);
+                const barWidth = Math.max((s.clinics / maxClinics) * 100, 0.5);
+                const drop = i === 0 ? '' : `<span>−${(steps[i-1].clinics - s.clinics).toLocaleString()} clinics</span>`;
+                return `
+                <div class="funnel-step">
+                    <div class="funnel-step-label" title="${escHtml(s.label)}">${escHtml(s.label)}</div>
+                    <div class="funnel-bar-wrap">
+                        <div class="funnel-bar ${colors[i % colors.length]}" style="width:${barWidth}%"></div>
+                    </div>
+                    <div class="funnel-count">
+                        ${s.clinics.toLocaleString()} clinics
+                        <span>${s.doctors.toLocaleString()} doctors</span>
+                        ${drop}
+                    </div>
+                    <div class="funnel-pct">${pct}%</div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+    container.innerHTML = html;
+}
+
+// ── Distribution charts ────────────────────────────────────────────────────
+function renderDistributions(data) {
+    const section = document.getElementById('distributions-section');
+    section.style.display = 'block';
+
+    // Keyword breakdown table
+    const kwCard = document.getElementById('kw-breakdown-card');
+    const kwRows = data.keyword_breakdown || [];
+    if (kwRows.length > 0) {
+        const modeLabel = kwMode === 'exclude' ? 'excluded when >50% match' : 'included when >50% match';
+        document.getElementById('kw-breakdown-title').textContent =
+            `Keyword Match Breakdown (${modeLabel}, counted on final filtered set)`;
+        const tbody = document.querySelector('#kw-breakdown-table tbody');
+        tbody.innerHTML = kwRows.map(r => `
+            <tr>
+                <td><span class="kw-pill">${escHtml(r.keyword)}</span></td>
+                <td>${r.clinics_with_match.toLocaleString()}</td>
+                <td>${r.doctors_with_match.toLocaleString()}</td>
+            </tr>
+        `).join('');
+        kwCard.style.display = 'block';
+    } else {
+        kwCard.style.display = 'none';
+    }
+
+    renderBarChart('chart-clinic-specs', data.top_clinic_specializations, '#3b82f6');
+    renderBarChart('chart-doc-specs', data.top_doctor_specializations, '#8b5cf6');
+    renderBarChart('chart-doc-dist', data.doctors_count_distribution, '#f59e0b', false);
+    renderBarChart('chart-loc-dist', data.locations_count_distribution, '#10b981', false);
+}
+
+function renderBarChart(canvasId, items, color, horizontal = true) {
+    if (charts[canvasId]) charts[canvasId].destroy();
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    const labels = items.map(d => d.label);
+    const values = items.map(d => d.count);
+    charts[canvasId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: color + 'cc',
+                borderColor: color,
+                borderWidth: 1,
+                borderRadius: 3,
+            }]
+        },
+        options: {
+            indexAxis: horizontal ? 'y' : 'x',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.parsed[horizontal ? 'x' : 'y'].toLocaleString()}`
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+                y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+            }
+        }
+    });
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Run immediately with no filters to show the baseline
+calculate();
+</script>
+</body>
+</html>

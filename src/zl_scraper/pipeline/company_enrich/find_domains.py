@@ -19,8 +19,9 @@ logger = get_logger("find_domains")
 EXCLUDE_SITES = (
     "-site:znanylekarz.pl -site:facebook.com -site:booksy.com "
     "-site:kliniki.pl -site:mp.pl -site:instagram.com -site:fresha.com "
-    "-site:rejestr.io -site:waze.com -site:pracuj.pl -site:aleo.com "
-    "-site:linkedin.com -site:lekarzebezkolejki.pl"
+    "-site:rejestr.io -site:pracuj.pl -site:aleo.com "
+    "-site:linkedin.com -site:lekarzebezkolejki.pl -site:panoraamafirm.pl "
+    "-site:twitter.com -site:x.com -site:instagram.com -site:youtube.com"
 )
 
 

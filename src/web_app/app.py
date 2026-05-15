@@ -22,6 +22,8 @@ from web_app.lead_graph import (  # noqa: E402
 from zl_scraper.config import DEBUG_VIEWS  # noqa: E402
 from web_app.routes import router  # noqa: E402
 from web_app.lead_routes import router as lead_router  # noqa: E402
+from web_app.tam_routes import router as tam_router  # noqa: E402
+from web_app.clinic_routes import router as clinic_router  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -78,6 +80,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Doctor-Clinic & Lead Network", lifespan=lifespan)
 app.include_router(router)
 app.include_router(lead_router)
+app.include_router(tam_router)
+app.include_router(clinic_router)
 
 if DEBUG_VIEWS:
     from web_app.analytics_routes import router as analytics_router  # noqa: E402
@@ -98,6 +102,12 @@ def index():
 def leads_page():
     """Serve the lead-clinic frontend."""
     return FileResponse(STATIC_DIR / "leads.html")
+
+
+@app.get("/tam")
+def tam_page():
+    """Serve the TAM calculator frontend."""
+    return FileResponse(STATIC_DIR / "tam.html")
 
 
 if DEBUG_VIEWS:

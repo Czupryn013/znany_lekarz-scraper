@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinic Detail</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f8f9fb;
+            --bg-card: #ffffff;
+            --border: #e2e5e9;
+            --text: #1a1a2e;
+            --text-muted: #6b7280;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #16a34a;
+            --red: #ef4444;
+            --radius: 10px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+        .topbar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 12px 24px; background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            position: sticky; top: 0; z-index: 50;
+        }
+        .topbar h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .nav-links { display: flex; gap: 4px; flex-shrink: 0; }
+        .nav-links a {
+            padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+            text-decoration: none; color: var(--text-muted); border: 1px solid var(--border);
+            transition: all 0.15s;
+        }
+        .nav-links a.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .nav-links a:hover:not(.active) { background: var(--bg); color: var(--text); }
+
+        .page { max-width: 900px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+        .card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px 24px;
+        }
+        .card-title {
+            font-size: 13px; font-weight: 700; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.06em;
+            margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+        }
+
+        /* Header card */
+        .clinic-name { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px; }
+        .zl-link { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 500; }
+        .zl-link:hover { text-decoration: underline; }
+
+        /* Edit form */
+        .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .field-group { display: flex; flex-direction: column; gap: 5px; }
+        .field-group label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .field-group input {
+            padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+            font-size: 13px; font-family: var(--font); background: var(--bg); color: var(--text);
+            outline: none; transition: border-color 0.15s;
+        }
+        .field-group input:focus { border-color: var(--accent); }
+
+        .save-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+        .btn-save {
+            padding: 9px 24px; background: var(--accent); color: #fff;
+            border: none; border-radius: 6px; font-size: 13px; font-weight: 600;
+            cursor: pointer; font-family: var(--font); transition: background 0.15s;
+        }
+        .btn-save:hover { background: var(--accent-hover); }
+        .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+        .save-msg { font-size: 13px; font-weight: 500; }
+        .save-msg.ok { color: var(--green); }
+        .save-msg.err { color: var(--red); }
+
+        /* Info grid */
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+        .info-item { display: flex; flex-direction: column; gap: 3px; }
+        .info-item .info-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .info-item .info-value { font-size: 13px; color: var(--text); font-weight: 500; }
+        .info-item .info-value.null { color: var(--text-muted); font-style: italic; }
+
+        /* Enrichment table */
+        table { width: 100%; border-collapse: collapse; }
+        thead th {
+            text-align: left; padding: 8px 12px;
+            font-size: 11px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border); background: #fafbfc;
+        }
+        tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .ts-done { color: var(--green); font-weight: 500; }
+        .ts-never { color: var(--text-muted); font-style: italic; }
+
+        /* Locations */
+        .locations-list { display: flex; flex-direction: column; gap: 12px; }
+        .location-item {
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 14px 16px; background: #fafbfc;
+        }
+        .loc-address { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        .loc-coords { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+        .loc-links { display: flex; gap: 10px; flex-wrap: wrap; }
+        .loc-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+        .loc-link:hover { text-decoration: underline; }
+
+        .empty-locations { color: var(--text-muted); font-style: italic; font-size: 13px; }
+        .loading { color: var(--text-muted); padding: 48px; text-align: center; }
+        .error-state { color: var(--red); padding: 48px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="nav-links">
+        <a href="/">Doctors</a>
+        <a href="/leads">Leads</a>
+        <a href="/tam">TAM</a>
+        <a href="/clinics" class="active">Clinics</a>
+    </div>
+    <h1 id="page-title">Loading…</h1>
+</div>
+
+<div class="page" id="page-content">
+    <div class="loading">Loading clinic…</div>
+</div>
+
+<script>
+    const clinicId = parseInt(window.location.pathname.split('/').pop());
+
+    function fmt(ts) {
+        if (!ts) return null;
+        return new Date(ts).toLocaleString('pl-PL', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function esc(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function infoVal(v) {
+        if (v === null || v === undefined || v === '') return '<span class="info-value null">—</span>';
+        return `<span class="info-value">${esc(v)}</span>`;
+    }
+
+    function renderPage(c) {
+        document.getElementById('page-title').textContent = c.name || 'Clinic #' + clinicId;
+        document.title = c.name || 'Clinic Detail';
+
+        const enrichmentRows = [
+            ['Discovered',        c.discovered_at],
+            ['Enriched',          c.enriched_at],
+            ['Domain search',     c.domain_searched_at],
+            ['LinkedIn search',   c.linkedin_searched_at],
+            ['NIP search',        c.nip_searched_at],
+            ['KRS search',        c.krs_searched_at],
+            ['Employees scrape',  c.employees_scraped_at],
+            ['Doctors refetch',   c.doctors_refetched_at],
+        ];
+
+        const locHtml = c.locations.length ? c.locations.map(loc => {
+            const socials = [
+                loc.website_url  && `<a class="loc-link" href="${esc(loc.website_url)}" target="_blank">Website</a>`,
+                loc.facebook_url && `<a class="loc-link" href="${esc(loc.facebook_url)}" target="_blank">Facebook</a>`,
+                loc.instagram_url && `<a class="loc-link" href="${esc(loc.instagram_url)}" target="_blank">Instagram</a>`,
+                loc.youtube_url  && `<a class="loc-link" href="${esc(loc.youtube_url)}" target="_blank">YouTube</a>`,
+                loc.linkedin_url && `<a class="loc-link" href="${esc(loc.linkedin_url)}" target="_blank">LinkedIn</a>`,
+            ].filter(Boolean).join('');
+
+            const coords = (loc.latitude && loc.longitude)
+                ? `${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}`
+                : null;
+
+            return `
+                <div class="location-item">
+                    <div class="loc-address">${esc(loc.address || '(no address)')}</div>
+                    ${coords ? `<div class="loc-coords">${esc(coords)}</div>` : ''}
+                    ${socials ? `<div class="loc-links">${socials}</div>` : ''}
+                </div>`;
+        }).join('') : '<div class="empty-locations">No locations recorded.</div>';
+
+        document.getElementById('page-content').innerHTML = `
+            <!-- Header -->
+            <div class="card">
+                <div class="clinic-name">${esc(c.name || '(no name)')}</div>
+                ${c.zl_url ? `<a class="zl-link" href="${esc(c.zl_url)}" target="_blank">View on ZnanyLekarz ↗</a>` : ''}
+            </div>
+
+            <!-- Editable fields -->
+            <div class="card">
+                <div class="card-title">Editable fields</div>
+                <div class="edit-grid">
+                    <div class="field-group">
+                        <label>Website Domain</label>
+                        <input type="text" id="f-domain" value="${esc(c.website_domain || '')}" placeholder="e.g. klinika.pl">
+                    </div>
+                    <div class="field-group">
+                        <label>LinkedIn URL</label>
+                        <input type="text" id="f-linkedin" value="${esc(c.linkedin_url || '')}" placeholder="e.g. linkedin.com/company/…">
+                    </div>
+                    <div class="field-group">
+                        <label>NIP</label>
+                        <input type="text" id="f-nip" value="${esc(c.nip || '')}" placeholder="e.g. 1234567890">
+                    </div>
+                    <div class="field-group">
+                        <label>KRS Number</label>
+                        <input type="text" id="f-krs" value="${esc(c.krs_number || '')}" placeholder="e.g. 0000123456">
+                    </div>
+                </div>
+                <div class="save-row">
+                    <button class="btn-save" id="btn-save" onclick="saveAll()">Save All</button>
+                    <span class="save-msg" id="save-msg"></span>
+                </div>
+            </div>
+
+            <!-- Core info -->
+            <div class="card">
+                <div class="card-title">Core info</div>
+                <div class="info-grid">
+                    <div class="info-item"><span class="info-label">Legal Name</span>${infoVal(c.legal_name)}</div>
+                    <div class="info-item"><span class="info-label">REGON</span>${infoVal(c.regon)}</div>
+                    <div class="info-item"><span class="info-label">Legal Type</span>${infoVal(c.legal_type)}</div>
+                    <div class="info-item"><span class="info-label">Registration Date</span>${infoVal(c.registration_date)}</div>
+                    <div class="info-item"><span class="info-label">Doctors</span>${infoVal(c.doctors_count)}</div>
+                </div>
+            </div>
+
+            <!-- Enrichment status -->
+            <div class="card">
+                <div class="card-title">Enrichment status</div>
+                <table>
+                    <thead><tr><th>Step</th><th>Date</th></tr></thead>
+                    <tbody>
+                        ${enrichmentRows.map(([label, ts]) => {
+                            const f = fmt(ts);
+                            return `<tr>
+                                <td>${label}</td>
+                                <td>${f ? `<span class="ts-done">${f}</span>` : '<span class="ts-never">Never</span>'}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Locations -->
+            <div class="card">
+                <div class="card-title">Locations (${c.locations.length})</div>
+                <div class="locations-list">${locHtml}</div>
+            </div>
+        `;
+    }
+
+    function saveAll() {
+        const btn = document.getElementById('btn-save');
+        const msg = document.getElementById('save-msg');
+        btn.disabled = true;
+        msg.textContent = '';
+
+        const payload = {
+            website_domain: document.getElementById('f-domain').value.trim() || null,
+            linkedin_url:   document.getElementById('f-linkedin').value.trim() || null,
+            nip:            document.getElementById('f-nip').value.trim() || null,
+            krs_number:     document.getElementById('f-krs').value.trim() || null,
+        };
+
+        fetch('/api/clinics/' + clinicId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            msg.textContent = 'Saved ✓';
+            msg.className = 'save-msg ok';
+        })
+        .catch(err => {
+            msg.textContent = 'Error: ' + err.message;
+            msg.className = 'save-msg err';
+        })
+        .finally(() => { btn.disabled = false; });
+    }
+
+    fetch('/api/clinics/' + clinicId)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(c => renderPage(c))
+        .catch(err => {
+            document.getElementById('page-content').innerHTML = `<div class="error-state">Failed to load clinic: ${err.message}</div>`;
+        });
+</script>
+</body>
+</html>
